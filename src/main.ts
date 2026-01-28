@@ -1,0 +1,82 @@
+import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import helmet from 'helmet';
+import compression from 'compression';
+import { AppModule } from './app.module';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule, {
+    rawBody: true, // Required for Stripe webhooks
+  });
+
+  // Security
+  app.use(helmet());
+  app.enableCors({
+    origin: process.env.FRONTEND_URL || '*',
+    credentials: true,
+  });
+
+  // Compression
+  app.use(compression());
+
+  // Global prefix
+  app.setGlobalPrefix('api/v1');
+
+  // Global validation pipe
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: {
+        enableImplicitConversion: true,
+      },
+    }),
+  );
+
+  // Swagger Documentation
+  const config = new DocumentBuilder()
+    .setTitle('E-commerce API')
+    .setDescription('Production-ready E-commerce Backend API')
+    .setVersion('1.0')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        name: 'JWT',
+        description: 'Enter JWT token',
+        in: 'header',
+      },
+      'JWT-auth',
+    )
+    .addTag('auth', 'Authentication endpoints')
+    .addTag('users', 'User management')
+    .addTag('products', 'Product catalog')
+    .addTag('categories', 'Categories')
+    .addTag('cart', 'Shopping cart')
+    .addTag('orders', 'Order management')
+    .addTag('payments', 'Payment processing')
+    .addTag('reviews', 'Product reviews')
+    .addTag('coupons', 'Coupon management')
+    .addTag('admin', 'Admin dashboard')
+    .addTag('analytics', 'Analytics & reports')
+    .build();
+
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/docs', app, document, {
+    swaggerOptions: {
+      persistAuthorization: true,
+    },
+  });
+
+  const port = Number(process.env.PORT) || 3000;
+  await app.listen(port);
+
+  console.log(`🚀 Application is running on: http://localhost:${port}`);
+  console.log(`📚 Swagger documentation: http://localhost:${port}/api/docs`);
+}
+
+bootstrap();
+
