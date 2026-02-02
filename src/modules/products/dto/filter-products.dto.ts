@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsString,
   IsNumber,
+  IsEnum,
   Min,
   Max,
   IsArray,
@@ -63,6 +64,12 @@ export class FilterProductsDto extends PaginationDto {
   @IsBoolean()
   isFeatured?: boolean;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  isActive?: boolean;
+
   @ApiPropertyOptional({ enum: ['price', 'rating', 'createdAt', 'salesCount'] })
   @IsOptional()
   @IsString()
@@ -72,5 +79,38 @@ export class FilterProductsDto extends PaginationDto {
   @IsOptional()
   @IsString()
   sortOrder?: 'asc' | 'desc';
+
+  // Ghee-specific filters
+  @ApiPropertyOptional({ enum: ['cow', 'buffalo', 'mixed'], description: 'Filter by ghee type' })
+  @IsOptional()
+  @IsEnum(['cow', 'buffalo', 'mixed'])
+  gheeType?: 'cow' | 'buffalo' | 'mixed';
+
+  @ApiPropertyOptional({ description: 'Minimum weight in grams' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  minWeight?: number;
+
+  @ApiPropertyOptional({ description: 'Maximum weight in grams' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  maxWeight?: number;
+
+  @ApiPropertyOptional({ description: 'Minimum purity percentage' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  minPurity?: number;
+
+  @ApiPropertyOptional({ description: 'Filter by origin/region' })
+  @IsOptional()
+  @IsString()
+  origin?: string;
 }
 

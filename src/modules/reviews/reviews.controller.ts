@@ -22,6 +22,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { PaginationDto } from '../../common/dto/pagination.dto';
 
 @ApiTags('reviews')
 @Controller('reviews')
@@ -34,11 +35,19 @@ export class ReviewsController {
   @ApiResponse({ status: 200, description: 'Reviews retrieved successfully' })
   async findAll(
     @Query('productId') productId?: string,
-    @Query('approvedOnly') approvedOnly?: string,
+    @Query('status') status?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
   ) {
+    // Default to showing approved reviews only
+    // Admins can filter by status if needed
+    const approvedOnly = status === undefined || status === 'approved';
+
     return this.reviewsService.findAll(
       productId,
-      approvedOnly !== 'false',
+      approvedOnly,
+      page || 1,
+      limit || 10,
     );
   }
 
@@ -55,8 +64,9 @@ export class ReviewsController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Create review' })
-  @ApiResponse({ status: 201, description: 'Review created successfully' })
-  @ApiResponse({ status: 409, description: 'Review already exists' })
+  @ApiResponse({ status: 201, description: 'Review submitted successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid input or duplicate review' })
+  @ApiResponse({ status: 404, description: 'Product not found' })
   async create(
     @CurrentUser() user: any,
     @Body() createReviewDto: CreateReviewDto,
@@ -89,8 +99,12 @@ export class ReviewsController {
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({ summary: 'Delete review' })
   @ApiResponse({ status: 200, description: 'Review deleted successfully' })
-  async delete(@Param('id') id: string) {
-    return this.reviewsService.delete(id);
+  @ApiResponse({ status: 403, description: 'Forbidden - can only delete own reviews' })
+  async delete(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.reviewsService.delete(id, user.id, user.role);
   }
 }
 

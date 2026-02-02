@@ -8,13 +8,19 @@ import {
   Param,
   Query,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiBearerAuth,
   ApiResponse,
+  ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -24,11 +30,16 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/decorators/roles.decorator';
 import { Public } from '../../common/decorators/public.decorator';
+import { FileUploadService } from '../../common/services/file-upload.service';
+import { multerConfig } from '../../common/config/multer.config';
 
 @ApiTags('products')
 @Controller('products')
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(
+    private readonly productsService: ProductsService,
+    private readonly fileUploadService: FileUploadService,
+  ) {}
 
   @Public()
   @Get()
@@ -90,6 +101,65 @@ export class ProductsController {
   @ApiResponse({ status: 404, description: 'Product not found' })
   async remove(@Param('id') id: string) {
     return this.productsService.remove(id);
+  }
+
+  @Post('upload-image')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.Admin)
+  @UseInterceptors(FileInterceptor('image', multerConfig))
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ summary: 'Upload product image (Admin only)' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        image: {
+          type: 'string',
+          format: 'binary',
+          description: 'Image file (JPG, PNG, GIF, WebP, max 5MB)',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Image uploaded successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Image uploaded successfully' },
+        data: {
+          type: 'object',
+          properties: {
+            url: {
+              type: 'string',
+              example: 'https://your-storage.com/products/image.jpg',
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Invalid file type or size, or no file provided' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 500, description: 'Failed to upload image' })
+  async uploadImage(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('No image file provided.');
+    }
+
+    const result = await this.fileUploadService.uploadImage(file, 'products');
+
+    return {
+      success: true,
+      message: 'Image uploaded successfully',
+      data: {
+        url: result.url,
+      },
+    };
   }
 }
 

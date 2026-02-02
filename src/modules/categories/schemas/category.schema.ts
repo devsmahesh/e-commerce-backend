@@ -5,10 +5,10 @@ export type CategoryDocument = Category & Document;
 
 @Schema({ timestamps: true })
 export class Category {
-  @Prop({ required: true, unique: true })
+  @Prop({ required: true })
   name: string;
 
-  @Prop()
+  @Prop({ required: true, unique: true })
   slug: string;
 
   @Prop()
@@ -30,7 +30,7 @@ export class Category {
 export const CategorySchema = SchemaFactory.createForClass(Category);
 
 // Indexes
-CategorySchema.index({ slug: 1 });
+CategorySchema.index({ slug: 1 }, { unique: true });
 CategorySchema.index({ parentId: 1 });
 CategorySchema.index({ isActive: 1 });
 

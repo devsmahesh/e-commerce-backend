@@ -23,11 +23,15 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { EmailService } from '../email/email.service';
 
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly emailService: EmailService,
+  ) {}
 
   @Public()
   @Post('register')
@@ -74,6 +78,34 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Password reset email sent' })
   async forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
     return this.authService.forgotPassword(forgotPasswordDto);
+  }
+
+  @Public()
+  @Get('smtp-status')
+  @ApiOperation({ summary: 'Check SMTP configuration status (Development only)' })
+  @ApiResponse({ status: 200, description: 'SMTP status information' })
+  async getSmtpStatus() {
+    const status = this.emailService.getSmtpStatus();
+    return {
+      success: true,
+      message: 'SMTP Configuration Status',
+      data: {
+        ...status,
+        message: status.configured 
+          ? '✅ SMTP is configured and ready to send emails'
+          : '❌ SMTP is NOT configured. Please add SMTP_HOST, SMTP_PORT, SMTP_USER, and SMTP_PASS to your .env file',
+        instructions: status.configured ? null : {
+          gmail: {
+            steps: [
+              '1. Enable 2-Step Verification: https://myaccount.google.com/security',
+              '2. Generate App Password: https://myaccount.google.com/apppasswords',
+              '3. Add to .env: SMTP_HOST=smtp.gmail.com, SMTP_PORT=587, SMTP_USER=your_email@gmail.com, SMTP_PASS=your_app_password',
+              '4. Restart your server'
+            ]
+          }
+        }
+      },
+    };
   }
 
   @Public()

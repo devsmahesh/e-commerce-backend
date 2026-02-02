@@ -61,6 +61,22 @@ export class Product {
 
   @Prop()
   dimensions?: string;
+
+  // Ghee-specific fields
+  @Prop({ type: String, enum: ['cow', 'buffalo', 'mixed'] })
+  gheeType?: 'cow' | 'buffalo' | 'mixed';
+
+  @Prop({ type: Number, min: 0, max: 100 })
+  purity?: number;
+
+  @Prop()
+  origin?: string;
+
+  @Prop()
+  shelfLife?: string;
+
+  @Prop()
+  brand?: string;
 }
 
 export const ProductSchema = SchemaFactory.createForClass(Product);
@@ -73,4 +89,9 @@ ProductSchema.index({ isFeatured: 1 });
 ProductSchema.index({ price: 1 });
 ProductSchema.index({ averageRating: -1 });
 ProductSchema.index({ name: 'text', description: 'text' });
+// Ghee-specific indexes
+ProductSchema.index({ gheeType: 1 });
+ProductSchema.index({ weight: 1 });
+ProductSchema.index({ purity: 1 });
+ProductSchema.index({ origin: 1 });
 

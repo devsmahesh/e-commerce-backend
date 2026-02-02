@@ -5,6 +5,8 @@ import { ReviewsController } from './reviews.controller';
 import { Review, ReviewSchema } from './schemas/review.schema';
 import { Product, ProductSchema } from '../products/schemas/product.schema';
 import { Order, OrderSchema } from '../orders/schemas/order.schema';
+import { User, UserSchema } from '../auth/schemas/user.schema';
+import { RedisModule } from '../../config/redis/redis.module';
 
 @Module({
   imports: [
@@ -12,7 +14,9 @@ import { Order, OrderSchema } from '../orders/schemas/order.schema';
       { name: Review.name, schema: ReviewSchema },
       { name: Product.name, schema: ProductSchema },
       { name: Order.name, schema: OrderSchema },
+      { name: User.name, schema: UserSchema },
     ]),
+    RedisModule,
   ],
   controllers: [ReviewsController],
   providers: [ReviewsService],

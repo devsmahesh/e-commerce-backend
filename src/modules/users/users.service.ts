@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { User, UserDocument } from '../auth/schemas/user.schema';
+import { Product, ProductDocument } from '../products/schemas/product.schema';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AddAddressDto } from './dto/add-address.dto';
 import { Address } from './schemas/address.schema';
@@ -10,6 +11,7 @@ import { Address } from './schemas/address.schema';
 export class UsersService {
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(Product.name) private productModel: Model<ProductDocument>,
   ) {}
 
   async getProfile(userId: string) {
@@ -116,30 +118,58 @@ export class UsersService {
   }
 
   async getWishlist(userId: string) {
-    const user = await this.userModel
-      .findById(userId)
-      .populate('wishlist')
-      .select('wishlist');
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-    return (user as any).wishlist || [];
-  }
-
-  async addToWishlist(userId: string, productId: string) {
     const user = await this.userModel.findById(userId);
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
     const wishlist = (user as any).wishlist || [];
-    if (!wishlist.includes(productId)) {
-      wishlist.push(productId);
+    if (wishlist.length === 0) {
+      return [];
+    }
+
+    // Populate products with categoryId
+    const products = await this.productModel
+      .find({ _id: { $in: wishlist } })
+      .populate('categoryId', 'name slug')
+      .exec();
+
+    return products;
+  }
+
+  async addToWishlist(userId: string, productId: string) {
+    // Check if product exists
+    const product = await this.productModel.findById(productId);
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const user = await this.userModel.findById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const wishlist = (user as any).wishlist || [];
+    const productObjectId = product._id.toString();
+
+    // Check if product is already in wishlist (idempotent)
+    const isAlreadyInWishlist = wishlist.some(
+      (id: any) => id.toString() === productObjectId,
+    );
+
+    if (!isAlreadyInWishlist) {
+      wishlist.push(product._id);
       (user as any).wishlist = wishlist;
       await user.save();
     }
 
-    return { message: 'Product added to wishlist' };
+    // Return the full product object with populated categoryId
+    const populatedProduct = await this.productModel
+      .findById(productId)
+      .populate('categoryId', 'name slug')
+      .exec();
+
+    return populatedProduct;
   }
 
   async removeFromWishlist(userId: string, productId: string) {
@@ -149,12 +179,19 @@ export class UsersService {
     }
 
     const wishlist = (user as any).wishlist || [];
-    (user as any).wishlist = wishlist.filter(
-      (id: string) => id.toString() !== productId,
-    );
-    await user.save();
+    const originalLength = wishlist.length;
 
-    return { message: 'Product removed from wishlist' };
+    // Remove product from wishlist (idempotent - no error if not found)
+    (user as any).wishlist = wishlist.filter(
+      (id: any) => id.toString() !== productId,
+    );
+
+    // Only save if something changed
+    if (wishlist.length !== originalLength) {
+      await user.save();
+    }
+
+    return { message: 'Product removed from wishlist successfully' };
   }
 }
 

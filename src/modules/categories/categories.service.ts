@@ -1,45 +1,71 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { ConfigService } from '@nestjs/config';
 import { Category, CategoryDocument } from './schemas/category.schema';
+import { Product, ProductDocument } from '../products/schemas/product.schema';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
+import { CategoriesQueryDto } from './dto/categories-query.dto';
 
 @Injectable()
 export class CategoriesService {
   constructor(
     @InjectModel(Category.name) private categoryModel: Model<CategoryDocument>,
+    @InjectModel(Product.name) private productModel: Model<ProductDocument>,
+    private configService: ConfigService,
   ) {}
 
   async create(createCategoryDto: CreateCategoryDto) {
-    // Generate slug from name
-    const slug = this.generateSlug(createCategoryDto.name);
-
-    // Check if slug exists
-    const existingCategory = await this.categoryModel.findOne({ slug });
+    // Check if slug already exists
+    const existingCategory = await this.categoryModel.findOne({
+      slug: createCategoryDto.slug,
+    });
     if (existingCategory) {
-      throw new ConflictException('Category with this name already exists');
+      throw new ConflictException('Category with this slug already exists');
+    }
+
+    // Validate parent if provided
+    if (createCategoryDto.parentId) {
+      const parent = await this.categoryModel.findById(
+        createCategoryDto.parentId,
+      );
+      if (!parent) {
+        throw new NotFoundException('Parent category not found');
+      }
     }
 
     const category = await this.categoryModel.create({
       ...createCategoryDto,
-      slug,
+      isActive:
+        createCategoryDto.isActive !== undefined
+          ? createCategoryDto.isActive
+          : true,
     });
 
-    return category;
+    // Transform image URL
+    return this.transformCategoryImage(category);
   }
 
-  async findAll(includeInactive = false) {
-    const query: any = {};
-    if (!includeInactive) {
-      query.isActive = true;
+  async findAll(query: CategoriesQueryDto) {
+    const filter: any = {};
+    if (!query.includeInactive) {
+      filter.isActive = true;
     }
 
-    return this.categoryModel
-      .find(query)
-      .sort({ order: 1, name: 1 })
+    const categories = await this.categoryModel
+      .find(filter)
+      .sort({ name: 1 })
       .populate('parentId', 'name slug')
       .exec();
+
+    // Transform image URLs for all categories
+    return categories.map((category: any) => this.transformCategoryImage(category));
   }
 
   async findOne(id: string) {
@@ -52,7 +78,8 @@ export class CategoriesService {
       throw new NotFoundException('Category not found');
     }
 
-    return category;
+    // Transform image URL
+    return this.transformCategoryImage(category);
   }
 
   async findBySlug(slug: string) {
@@ -65,7 +92,8 @@ export class CategoriesService {
       throw new NotFoundException('Category not found');
     }
 
-    return category;
+    // Transform image URL
+    return this.transformCategoryImage(category);
   }
 
   async update(id: string, updateCategoryDto: UpdateCategoryDto) {
@@ -74,19 +102,32 @@ export class CategoriesService {
       throw new NotFoundException('Category not found');
     }
 
-    // If name is being updated, regenerate slug
-    if (updateCategoryDto.name && updateCategoryDto.name !== category.name) {
-      const newSlug = this.generateSlug(updateCategoryDto.name);
+    // Check slug uniqueness if slug is being updated
+    if (updateCategoryDto.slug && updateCategoryDto.slug !== category.slug) {
       const existingCategory = await this.categoryModel.findOne({
-        slug: newSlug,
+        slug: updateCategoryDto.slug,
         _id: { $ne: id },
       });
-
       if (existingCategory) {
-        throw new ConflictException('Category with this name already exists');
+        throw new ConflictException('Category with this slug already exists');
       }
+    }
 
-      (updateCategoryDto as any).slug = newSlug;
+    // Prevent circular references
+    if (updateCategoryDto.parentId) {
+      if (updateCategoryDto.parentId === id) {
+        throw new BadRequestException('Category cannot be its own parent');
+      }
+      // Check if parent is a descendant (prevent circular hierarchy)
+      const isDescendant = await this.isDescendant(
+        id,
+        updateCategoryDto.parentId,
+      );
+      if (isDescendant) {
+        throw new BadRequestException(
+          'Cannot set parent: would create circular reference',
+        );
+      }
     }
 
     const updatedCategory = await this.categoryModel.findByIdAndUpdate(
@@ -95,7 +136,8 @@ export class CategoriesService {
       { new: true, runValidators: true },
     );
 
-    return updatedCategory;
+    // Transform image URL
+    return this.transformCategoryImage(updatedCategory);
   }
 
   async remove(id: string) {
@@ -104,20 +146,78 @@ export class CategoriesService {
       throw new NotFoundException('Category not found');
     }
 
-    // Check if category has products
-    // This would require Product model - for now, just delete
+    // Check for associated products
+    const productCount = await this.productModel.countDocuments({
+      categoryId: id,
+    });
+
+    if (productCount > 0) {
+      throw new BadRequestException(
+        `Cannot delete category. It has ${productCount} associated product(s). Please reassign or delete products first.`,
+      );
+    }
+
     await this.categoryModel.findByIdAndDelete(id);
 
     return { message: 'Category deleted successfully' };
   }
 
-  private generateSlug(name: string): string {
-    return name
-      .toLowerCase()
-      .trim()
-      .replace(/[^\w\s-]/g, '')
-      .replace(/[\s_-]+/g, '-')
-      .replace(/^-+|-+$/g, '');
+  private async isDescendant(
+    categoryId: string,
+    potentialParentId: string,
+  ): Promise<boolean> {
+    // Recursive check to prevent circular references
+    let current = await this.categoryModel.findById(categoryId);
+
+    while (current?.parentId) {
+      if (String(current.parentId) === potentialParentId) {
+        return true;
+      }
+      current = await this.categoryModel.findById(current.parentId);
+    }
+
+    return false;
+  }
+
+  private transformImageUrl(imagePath: string, folder: string = 'categories'): string {
+    if (!imagePath) {
+      return imagePath;
+    }
+
+    // Extract filename from path (handles both full URLs and relative paths)
+    let filename: string;
+    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+      // Extract filename from full URL
+      const urlParts = imagePath.split('/');
+      filename = urlParts[urlParts.length - 1] || imagePath;
+    } else {
+      // Extract filename from relative path
+      filename = imagePath.includes('/') ? (imagePath.split('/').pop() || imagePath) : imagePath;
+    }
+    
+    // Get base URL - use BACKEND_URL from env or config
+    let apiUrl = process.env.BACKEND_URL || this.configService.get<string>('BACKEND_URL');
+    if (!apiUrl) {
+      const port = process.env.PORT || 3000;
+      apiUrl = `http://localhost:${port}`;
+    }
+    
+    // Return full URL: baseurl/uploads/folder/filename
+    return `${apiUrl}/uploads/${folder}/${filename}`;
+  }
+
+  private transformCategoryImage(category: any): any {
+    if (!category) {
+      return category;
+    }
+
+    const categoryObj = category.toObject ? category.toObject() : category;
+    
+    // Transform image field
+    if (categoryObj.image) {
+      categoryObj.image = this.transformImageUrl(categoryObj.image, 'categories');
+    }
+
+    return categoryObj;
   }
 }
-

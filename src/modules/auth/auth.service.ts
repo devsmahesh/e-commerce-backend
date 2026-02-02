@@ -3,7 +3,9 @@ import {
   UnauthorizedException,
   BadRequestException,
   ConflictException,
+  Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { JwtService } from '@nestjs/jwt';
@@ -19,10 +21,13 @@ import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     private jwtService: JwtService,
     private emailService: EmailService,
+    private configService: ConfigService,
   ) {}
 
   async register(registerDto: RegisterDto) {
@@ -198,15 +203,55 @@ export class AuthService {
     user.passwordResetExpires = passwordResetExpires;
     await user.save();
 
+    // Check SMTP configuration
+    const smtpStatus = this.emailService.getSmtpStatus();
+    const isDevelopment = this.configService.get<string>('NODE_ENV') === 'development';
+
     // Send password reset email
+    let emailSent = false;
+    let emailError: string | null = null;
+    
+    console.log('\n=== FORGOT PASSWORD REQUEST ===');
+    console.log('User email:', user.email);
+    console.log('Reset token generated:', passwordResetToken.substring(0, 8) + '...');
+    console.log('SMTP configured:', smtpStatus.configured);
+    
     try {
       await this.emailService.sendPasswordResetEmail(user.email, passwordResetToken);
+      emailSent = true;
+      const successMsg = `Password reset email sent successfully to ${user.email}`;
+      this.logger.log(successMsg);
+      console.log('✅', successMsg);
     } catch (error) {
       // Log error but don't reveal if email failed for security
-      console.error('Failed to send password reset email:', error);
+      emailError = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Failed to send password reset email to ${user.email}:`, error);
+      this.logger.error('Error details:', emailError);
+      console.error('❌ Failed to send password reset email:', emailError);
+      // Still return success message for security (don't reveal if user exists)
+    }
+    console.log('==================================\n');
+
+    const response: any = { 
+      message: 'If the email exists, a password reset link has been sent' 
+    };
+
+    // Include debug info in development mode
+    if (isDevelopment) {
+      response.debug = {
+        smtpConfigured: smtpStatus.configured,
+        emailSent,
+        smtpStatus: {
+          host: smtpStatus.host || 'Not configured',
+          port: smtpStatus.port || 'Not configured',
+          user: smtpStatus.user || 'Not configured',
+          hasPassword: smtpStatus.hasPassword,
+        },
+        ...(emailError && { emailError }),
+      };
     }
 
-    return { message: 'If the email exists, a password reset link has been sent' };
+    return response;
   }
 
   async resetPassword(resetPasswordDto: ResetPasswordDto) {

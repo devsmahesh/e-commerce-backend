@@ -9,25 +9,46 @@ export class EmailService {
 
   constructor(private configService: ConfigService) {
     const smtpHost = this.configService.get<string>('SMTP_HOST');
-    const smtpPort = this.configService.get<number>('SMTP_PORT');
+    const smtpPort = this.configService.get<string>('SMTP_PORT');
     const smtpUser = this.configService.get<string>('SMTP_USER');
     const smtpPass = this.configService.get<string>('SMTP_PASS');
 
+    // Log to console for visibility
+    console.log('\n=== EMAIL SERVICE INITIALIZATION ===');
+    console.log('SMTP_HOST:', smtpHost || 'NOT SET');
+    console.log('SMTP_PORT:', smtpPort || 'NOT SET');
+    console.log('SMTP_USER:', smtpUser || 'NOT SET');
+    console.log('SMTP_PASS:', smtpPass ? '***SET***' : 'NOT SET');
+    console.log('=====================================\n');
+
     // Only create transporter if SMTP config is provided
     if (smtpHost && smtpPort && smtpUser && smtpPass) {
+      const port = parseInt(smtpPort, 10);
+      if (isNaN(port)) {
+        const errorMsg = `Invalid SMTP_PORT: ${smtpPort}. Must be a number.`;
+        this.logger.error(errorMsg);
+        console.error('❌ EMAIL ERROR:', errorMsg);
+        return;
+      }
+
       this.transporter = nodemailer.createTransport({
         host: smtpHost,
-        port: smtpPort,
-        secure: smtpPort === 465, // true for 465, false for other ports
+        port: port,
+        secure: port === 465, // true for 465, false for other ports
         auth: {
           user: smtpUser,
           pass: smtpPass,
         },
       });
+
+      const successMsg = `SMTP transporter configured: ${smtpHost}:${port}`;
+      this.logger.log(successMsg);
+      console.log('✅', successMsg);
     } else {
-      this.logger.warn(
-        'SMTP configuration not found. Email sending will be disabled. Please configure SMTP_HOST, SMTP_PORT, SMTP_USER, and SMTP_PASS in your .env file.',
-      );
+      const warnMsg = 'SMTP configuration not found. Email sending will be disabled. Please configure SMTP_HOST, SMTP_PORT, SMTP_USER, and SMTP_PASS in your .env file.';
+      this.logger.warn(warnMsg);
+      console.warn('⚠️  EMAIL WARNING:', warnMsg);
+      console.warn(`Current SMTP config - HOST: ${smtpHost ? '✓' : '✗'}, PORT: ${smtpPort ? '✓' : '✗'}, USER: ${smtpUser ? '✓' : '✗'}, PASS: ${smtpPass ? '✓' : '✗'}`);
     }
   }
 
@@ -142,19 +163,56 @@ export class EmailService {
     await this.sendEmail(mailOptions);
   }
 
+  getSmtpStatus(): {
+    configured: boolean;
+    host?: string;
+    port?: number;
+    user?: string;
+    hasPassword: boolean;
+  } {
+    const smtpHost = this.configService.get<string>('SMTP_HOST');
+    const smtpPort = this.configService.get<string>('SMTP_PORT');
+    const smtpUser = this.configService.get<string>('SMTP_USER');
+    const smtpPass = this.configService.get<string>('SMTP_PASS');
+
+    return {
+      configured: !!(smtpHost && smtpPort && smtpUser && smtpPass && this.transporter),
+      host: smtpHost,
+      port: smtpPort ? parseInt(smtpPort, 10) : undefined,
+      user: smtpUser,
+      hasPassword: !!smtpPass,
+    };
+  }
+
   private async sendEmail(mailOptions: nodemailer.SendMailOptions): Promise<void> {
+    console.log('\n=== ATTEMPTING TO SEND EMAIL ===');
+    console.log('To:', mailOptions.to);
+    console.log('Subject:', mailOptions.subject);
+    
     if (!this.transporter) {
-      this.logger.warn(
-        `Email not sent to ${mailOptions.to}. SMTP not configured. Email would have been: ${mailOptions.subject}`,
-      );
+      const warnMsg = `Email not sent to ${mailOptions.to}. SMTP not configured. Email would have been: ${mailOptions.subject}`;
+      this.logger.warn(warnMsg);
+      console.error('❌ EMAIL NOT SENT:', warnMsg);
+      console.log('===================================\n');
       return;
     }
 
     try {
+      console.log('Sending email via SMTP...');
       const info = await this.transporter.sendMail(mailOptions);
-      this.logger.log(`Email sent successfully to ${mailOptions.to}. MessageId: ${info.messageId}`);
+      const successMsg = `Email sent successfully to ${mailOptions.to}. MessageId: ${info.messageId}`;
+      this.logger.log(successMsg);
+      console.log('✅', successMsg);
+      console.log('===================================\n');
     } catch (error) {
-      this.logger.error(`Failed to send email to ${mailOptions.to}:`, error);
+      const errorMsg = `Failed to send email to ${mailOptions.to}`;
+      this.logger.error(errorMsg, error);
+      console.error('❌ EMAIL SEND FAILED:', errorMsg);
+      console.error('Error:', error instanceof Error ? error.message : String(error));
+      if (error instanceof Error && error.stack) {
+        console.error('Stack:', error.stack);
+      }
+      console.log('===================================\n');
       throw error;
     }
   }

@@ -1,4 +1,4 @@
-import { Controller, Get, Put, Delete, Post, Param, Query, UseGuards, Body, Patch } from '@nestjs/common';
+import { Controller, Get, Put, Delete, Post, Param, Query, UseGuards, Body, Patch, BadRequestException } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -13,6 +13,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/decorators/roles.decorator';
+import { ReviewStatus } from '../reviews/schemas/review.schema';
 
 @ApiTags('admin')
 @Controller('admin')
@@ -148,25 +149,38 @@ export class AdminController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('productId') productId?: string,
-    @Query('isApproved') isApproved?: string,
+    @Query('status') status?: string,
   ) {
+    let reviewStatus: ReviewStatus | undefined;
+    if (status) {
+      // Validate status value
+      if (Object.values(ReviewStatus).includes(status as ReviewStatus)) {
+        reviewStatus = status as ReviewStatus;
+      }
+    }
+    
     return this.adminService.getAllReviews(
       page ? parseInt(page) : 1,
       limit ? parseInt(limit) : 10,
       productId,
-      isApproved === 'true' ? true : isApproved === 'false' ? false : undefined,
+      reviewStatus,
     );
   }
 
   @Put('reviews/:id/status')
-  @ApiOperation({ summary: 'Update review approval status' })
+  @ApiOperation({ summary: 'Update review status (pending/approved/rejected)' })
   @ApiResponse({ status: 200, description: 'Review status updated' })
   @ApiResponse({ status: 404, description: 'Review not found' })
+  @ApiResponse({ status: 400, description: 'Invalid status value' })
   async updateReviewStatus(
     @Param('id') id: string,
-    @Body('isApproved') isApproved: boolean,
+    @Body('status') status: string,
   ) {
-    return this.adminService.updateReviewStatus(id, isApproved);
+    // Validate status
+    if (!Object.values(ReviewStatus).includes(status as ReviewStatus)) {
+      throw new BadRequestException(`Invalid status. Must be one of: ${Object.values(ReviewStatus).join(', ')}`);
+    }
+    return this.adminService.updateReviewStatus(id, status as ReviewStatus);
   }
 
   @Delete('reviews/:id')

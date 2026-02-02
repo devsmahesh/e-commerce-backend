@@ -6,11 +6,13 @@ import {
   IsArray,
   IsBoolean,
   IsOptional,
+  IsEnum,
   Min,
   Max,
   MinLength,
   MaxLength,
   ArrayMinSize,
+  ValidateIf,
 } from 'class-validator';
 
 export class CreateProductDto {
@@ -43,6 +45,8 @@ export class CreateProductDto {
   @IsOptional()
   @IsNumber()
   @Min(0)
+  @ValidateIf((o) => o.compareAtPrice !== undefined)
+  @Max(999999, { message: 'compareAtPrice must be less than 999999' })
   compareAtPrice?: number;
 
   @ApiProperty()
@@ -94,5 +98,36 @@ export class CreateProductDto {
   @ApiPropertyOptional()
   @IsOptional()
   variants?: Record<string, any>;
+
+  // Ghee-specific fields
+  @ApiPropertyOptional({ enum: ['cow', 'buffalo', 'mixed'], description: 'Type of ghee' })
+  @IsOptional()
+  @IsEnum(['cow', 'buffalo', 'mixed'])
+  gheeType?: 'cow' | 'buffalo' | 'mixed';
+
+  @ApiPropertyOptional({ description: 'Purity percentage (0-100)' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  purity?: number;
+
+  @ApiPropertyOptional({ description: 'Origin/region (e.g., "Punjab, India")' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  origin?: string;
+
+  @ApiPropertyOptional({ description: 'Shelf life information (e.g., "12 months")' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  shelfLife?: string;
+
+  @ApiPropertyOptional({ description: 'Brand name' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  brand?: string;
 }
 

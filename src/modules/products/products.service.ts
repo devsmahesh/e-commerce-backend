@@ -2,12 +2,15 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import * as mongoose from 'mongoose';
+import { ConfigService } from '@nestjs/config';
 import { Product, ProductDocument } from './schemas/product.schema';
+import { Review, ReviewDocument, ReviewStatus } from '../reviews/schemas/review.schema';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { FilterProductsDto } from './dto/filter-products.dto';
@@ -19,10 +22,23 @@ export class ProductsService {
 
   constructor(
     @InjectModel(Product.name) private productModel: Model<ProductDocument>,
+    @InjectModel(Review.name) private reviewModel: Model<ReviewDocument>,
     private redisService: RedisService,
+    private configService: ConfigService,
   ) {}
 
   async create(createProductDto: CreateProductDto) {
+    // Validate compareAtPrice >= price if both are provided
+    if (
+      createProductDto.compareAtPrice !== undefined &&
+      createProductDto.price !== undefined &&
+      createProductDto.compareAtPrice < createProductDto.price
+    ) {
+      throw new BadRequestException(
+        'compareAtPrice must be greater than or equal to price',
+      );
+    }
+
     // Generate slug from name
     const slug = this.generateSlug(createProductDto.name);
 
@@ -40,7 +56,8 @@ export class ProductsService {
     // Invalidate cache
     await this.invalidateProductCache();
 
-    return product;
+    // Transform image URLs
+    return this.transformProductImages(product);
   }
 
   async findAll(filterDto: FilterProductsDto) {
@@ -56,8 +73,14 @@ export class ProductsService {
         minRating,
         inStock,
         isFeatured,
+        isActive,
         sortBy = 'createdAt',
         sortOrder = 'desc',
+        gheeType,
+        minWeight,
+        maxWeight,
+        minPurity,
+        origin,
       } = filterDto;
 
       // Normalize empty search string to undefined
@@ -68,8 +91,14 @@ export class ProductsService {
 
     // Try to get from cache (only if Redis is available)
     try {
-      const cached = await this.redisService.get(cacheKey);
+      const cached: any = await this.redisService.get(cacheKey);
       if (cached) {
+        // Transform image URLs in case cache has old format
+        if (cached.items && Array.isArray(cached.items)) {
+          cached.items = cached.items.map((item: any) => 
+            this.transformProductImages(item)
+          );
+        }
         return cached;
       }
     } catch (error) {
@@ -78,7 +107,14 @@ export class ProductsService {
     }
 
     // Build query
-    const query: any = { isActive: true };
+    const query: any = {};
+
+    // Only filter by isActive if explicitly provided, otherwise default to true for public access
+    if (isActive !== undefined) {
+      query.isActive = isActive;
+    } else {
+      query.isActive = true; // Default to active products for public endpoints
+    }
 
     // Only use text search if search is provided and not empty
     if (search && search.trim().length > 0) {
@@ -113,6 +149,29 @@ export class ProductsService {
 
     if (isFeatured !== undefined) {
       query.isFeatured = isFeatured;
+    }
+
+    // Ghee-specific filters
+    if (gheeType) {
+      query.gheeType = gheeType;
+    }
+
+    if (minWeight !== undefined || maxWeight !== undefined) {
+      query.weight = {};
+      if (minWeight !== undefined) {
+        query.weight.$gte = minWeight;
+      }
+      if (maxWeight !== undefined) {
+        query.weight.$lte = maxWeight;
+      }
+    }
+
+    if (minPurity !== undefined) {
+      query.purity = { $gte: minPurity };
+    }
+
+    if (origin) {
+      query.origin = { $regex: origin, $options: 'i' };
     }
 
     // Build sort - validate sortBy field
@@ -154,7 +213,7 @@ export class ProductsService {
       
       // Filter and clean invalid categoryId values before populating
       const cleanedItems = items.map((product: any) => {
-        const productObj: any = product.toObject ? product.toObject() : product;
+        const productObj: any = product.toObject?.() || product;
         // Check if categoryId is valid ObjectId
         if (productObj.categoryId) {
           const categoryIdStr = String(productObj.categoryId);
@@ -225,8 +284,13 @@ export class ProductsService {
       }
     }
 
+    // Transform image URLs for all products
+    const transformedItems = (items || []).map((item: any) => 
+      this.transformProductImages(item)
+    );
+
     const result = {
-      items: items || [],
+      items: transformedItems,
       meta: {
         total: total || 0,
         page: Number(page),
@@ -257,7 +321,8 @@ export class ProductsService {
     try {
       const cached = await this.redisService.get(cacheKey);
       if (cached) {
-        return cached;
+        // Transform image URLs in case cache has old format
+        return this.transformProductImages(cached);
       }
     } catch (error) {
       this.logger.warn('Redis cache error:', error.message);
@@ -271,7 +336,7 @@ export class ProductsService {
     }
 
     // Clean invalid categoryId before populating
-    const productObj: any = product.toObject ? product.toObject() : product;
+    const productObj: any = product.toObject?.() || product;
     if (productObj.categoryId) {
       const categoryIdStr = String(productObj.categoryId);
       if (categoryIdStr === 'undefined' || 
@@ -290,14 +355,32 @@ export class ProductsService {
       });
     }
 
+    // Fetch approved reviews for this product
+    const reviews = await this.reviewModel
+      .find({
+        productId: productObj._id,
+        status: ReviewStatus.Approved,
+      })
+      .sort({ createdAt: -1 })
+      .limit(10) // Limit to latest 10 reviews
+      .populate('userId', 'firstName lastName email avatar')
+      .select('rating comment userId isVerifiedPurchase createdAt updatedAt')
+      .exec();
+
+    // Add reviews to product object
+    productObj.reviews = reviews;
+
+    // Transform image URLs
+    const transformedProduct = this.transformProductImages(productObj);
+
     // Cache for 10 minutes
     try {
-      await this.redisService.set(cacheKey, productObj, 600);
+      await this.redisService.set(cacheKey, transformedProduct, 600);
     } catch (error) {
       this.logger.warn('Redis cache error:', error.message);
     }
 
-    return productObj;
+    return transformedProduct;
   }
 
   async findBySlug(slug: string) {
@@ -305,7 +388,8 @@ export class ProductsService {
     try {
       const cached = await this.redisService.get(cacheKey);
       if (cached) {
-        return cached;
+        // Transform image URLs in case cache has old format
+        return this.transformProductImages(cached);
       }
     } catch (error) {
       this.logger.warn('Redis cache error:', error.message);
@@ -319,7 +403,7 @@ export class ProductsService {
     }
 
     // Clean invalid categoryId before populating
-    const productObj: any = product.toObject ? product.toObject() : product;
+    const productObj: any = product.toObject?.() || product;
     if (productObj.categoryId) {
       const categoryIdStr = String(productObj.categoryId);
       if (categoryIdStr === 'undefined' || 
@@ -338,20 +422,52 @@ export class ProductsService {
       });
     }
 
+    // Fetch approved reviews for this product
+    const reviews = await this.reviewModel
+      .find({
+        productId: productObj._id,
+        status: ReviewStatus.Approved,
+      })
+      .sort({ createdAt: -1 })
+      .limit(10) // Limit to latest 10 reviews
+      .populate('userId', 'firstName lastName email avatar')
+      .select('rating comment userId isVerifiedPurchase createdAt updatedAt')
+      .exec();
+
+    // Add reviews to product object
+    productObj.reviews = reviews;
+
+    // Transform image URLs
+    const transformedProduct = this.transformProductImages(productObj);
+
     // Cache for 10 minutes
     try {
-      await this.redisService.set(cacheKey, productObj, 600);
+      await this.redisService.set(cacheKey, transformedProduct, 600);
     } catch (error) {
       this.logger.warn('Redis cache error:', error.message);
     }
 
-    return productObj;
+    return transformedProduct;
   }
 
   async update(id: string, updateProductDto: UpdateProductDto) {
     const product = await this.productModel.findById(id);
     if (!product) {
       throw new NotFoundException('Product not found');
+    }
+
+    // Validate compareAtPrice >= price if both are provided
+    const finalPrice =
+      updateProductDto.price !== undefined
+        ? updateProductDto.price
+        : product.price;
+    if (
+      updateProductDto.compareAtPrice !== undefined &&
+      updateProductDto.compareAtPrice < finalPrice
+    ) {
+      throw new BadRequestException(
+        'compareAtPrice must be greater than or equal to price',
+      );
     }
 
     // If name is being updated, regenerate slug
@@ -378,7 +494,8 @@ export class ProductsService {
     // Invalidate cache
     await this.invalidateProductCache(id);
 
-    return updatedProduct;
+    // Transform image URLs
+    return this.transformProductImages(updatedProduct);
   }
 
   async remove(id: string) {
@@ -421,6 +538,50 @@ export class ProductsService {
       .replace(/[^\w\s-]/g, '')
       .replace(/[\s_-]+/g, '-')
       .replace(/^-+|-+$/g, '');
+  }
+
+  private transformImageUrl(imagePath: string, folder: string = 'products'): string {
+    if (!imagePath) {
+      return imagePath;
+    }
+
+    // Extract filename from path (handles both full URLs and relative paths)
+    let filename: string;
+    if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+      // Extract filename from full URL
+      const urlParts = imagePath.split('/');
+      filename = urlParts[urlParts.length - 1] || imagePath;
+    } else {
+      // Extract filename from relative path
+      filename = imagePath.includes('/') ? (imagePath.split('/').pop() || imagePath) : imagePath;
+    }
+    
+    // Get base URL - use BACKEND_URL from env or config
+    let apiUrl = process.env.BACKEND_URL || this.configService.get<string>('BACKEND_URL');
+    if (!apiUrl) {
+      const port = process.env.PORT || 3000;
+      apiUrl = `http://localhost:${port}`;
+    }
+    
+    // Return full URL: baseurl/uploads/folder/filename
+    return `${apiUrl}/uploads/${folder}/${filename}`;
+  }
+
+  private transformProductImages(product: any): any {
+    if (!product) {
+      return product;
+    }
+
+    const productObj = product.toObject ? product.toObject() : product;
+    
+    // Transform images array
+    if (productObj.images && Array.isArray(productObj.images)) {
+      productObj.images = productObj.images.map((img: string) => 
+        this.transformImageUrl(img, 'products')
+      );
+    }
+
+    return productObj;
   }
 
   private async invalidateProductCache(productId?: string) {

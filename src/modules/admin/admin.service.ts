@@ -5,7 +5,7 @@ import { User, UserDocument } from '../auth/schemas/user.schema';
 import { Product, ProductDocument } from '../products/schemas/product.schema';
 import { Order, OrderDocument, OrderStatus } from '../orders/schemas/order.schema';
 import { Coupon, CouponDocument } from '../coupons/schemas/coupon.schema';
-import { Review, ReviewDocument } from '../reviews/schemas/review.schema';
+import { Review, ReviewDocument, ReviewStatus } from '../reviews/schemas/review.schema';
 import { Banner, BannerDocument } from './schemas/banner.schema';
 import { Role } from '../../common/decorators/roles.decorator';
 import { CreateBannerDto } from './dto/create-banner.dto';
@@ -41,7 +41,7 @@ export class AdminService {
       ]),
       this.orderModel.countDocuments({ status: OrderStatus.Pending }),
       this.couponModel.countDocuments({ isActive: true, expiresAt: { $gt: new Date() } }),
-      this.reviewModel.countDocuments({ isApproved: false }),
+      this.reviewModel.countDocuments({ status: ReviewStatus.Pending }),
     ]);
 
     // Calculate growth rate (comparing last 30 days with previous 30 days)
@@ -296,7 +296,7 @@ export class AdminService {
     page = 1,
     limit = 10,
     productId?: string,
-    isApproved?: boolean,
+    status?: ReviewStatus,
   ) {
     const skip = (page - 1) * limit;
     const query: any = {};
@@ -304,8 +304,8 @@ export class AdminService {
     if (productId) {
       query.productId = productId;
     }
-    if (isApproved !== undefined) {
-      query.isApproved = isApproved;
+    if (status !== undefined) {
+      query.status = status;
     }
 
     const [reviews, total] = await Promise.all([
@@ -331,17 +331,22 @@ export class AdminService {
     };
   }
 
-  async updateReviewStatus(id: string, isApproved: boolean) {
+  async updateReviewStatus(id: string, status: ReviewStatus) {
     const review = await this.reviewModel.findById(id);
     if (!review) {
       throw new NotFoundException('Review not found');
     }
 
-    review.isApproved = isApproved;
+    const wasApproved = review.status === ReviewStatus.Approved;
+    review.status = status;
     await review.save();
 
-    // Update product rating if approved
-    if (isApproved) {
+    // Update product rating if status changed to/from approved
+    if (status === ReviewStatus.Approved && !wasApproved) {
+      // Status changed to approved
+      await this.updateProductRating(review.productId.toString());
+    } else if (wasApproved && status !== ReviewStatus.Approved) {
+      // Status changed from approved to something else
       await this.updateProductRating(review.productId.toString());
     }
 
@@ -355,10 +360,13 @@ export class AdminService {
     }
 
     const productId = review.productId.toString();
+    const wasApproved = review.status === ReviewStatus.Approved;
     await this.reviewModel.findByIdAndDelete(id);
 
-    // Update product rating
-    await this.updateProductRating(productId);
+    // Update product rating only if the deleted review was approved
+    if (wasApproved) {
+      await this.updateProductRating(productId);
+    }
 
     return { message: 'Review deleted successfully' };
   }
@@ -366,7 +374,7 @@ export class AdminService {
   private async updateProductRating(productId: string) {
     const reviews = await this.reviewModel.find({
       productId,
-      isApproved: true,
+      status: ReviewStatus.Approved,
     });
 
     if (reviews.length === 0) {

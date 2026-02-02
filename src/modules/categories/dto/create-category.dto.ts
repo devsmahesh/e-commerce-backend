@@ -7,25 +7,37 @@ import {
   IsNumber,
   MinLength,
   MaxLength,
+  Matches,
+  Length,
+  ValidateIf,
+  Validate,
 } from 'class-validator';
+import { IsValidUrlConstraint } from '../../../common/validators/url.validator';
 
 export class CreateCategoryDto {
   @ApiProperty()
   @IsString()
   @IsNotEmpty()
-  @MinLength(2)
-  @MaxLength(100)
+  @Length(1, 255)
   name: string;
+
+  @ApiProperty()
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, {
+    message: 'Slug must be lowercase alphanumeric with hyphens only',
+  })
+  slug: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  @MaxLength(500)
   description?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @Validate(IsValidUrlConstraint)
   image?: string;
 
   @ApiPropertyOptional()
