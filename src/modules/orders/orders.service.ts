@@ -260,7 +260,7 @@ export class OrdersService {
         .skip(skip)
         .limit(limit)
         .populate('items.productId', 'name slug images')
-        .populate('userId', 'email firstName lastName')
+        .populate('userId', 'email firstName lastName phone')
         .exec();
       const totalPromise = this.orderModel.countDocuments(query);
       const orders = await ordersPromise;
@@ -285,7 +285,7 @@ export class OrdersService {
       .find(query)
       .sort({ createdAt: -1 })
       .populate('items.productId', 'name slug images')
-      .populate('userId', 'email firstName lastName')
+      .populate('userId', 'email firstName lastName phone')
       .exec();
 
     // Transform orders to ensure trackingNumber is included
@@ -519,6 +519,51 @@ export class OrdersService {
       }
     }
 
+    // Send detailed cancellation notification to admin if order is cancelled
+    if (updateDto.status === OrderStatus.Cancelled) {
+      try {
+        const user = order.userId as any;
+        const customerName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : 'Customer';
+        const customerEmail = user?.email || 'Unknown';
+        const orderDoc = order as any;
+
+        // Get all admin users
+        const adminUsers = await this.userModel.find({ role: Role.Admin, isActive: true }).select('email firstName lastName').lean();
+
+        for (const admin of adminUsers) {
+          if (admin.email) {
+            await this.emailService.sendOrderCancellationNotificationToAdmin(admin.email, {
+              orderNumber: order.orderNumber,
+              customerName,
+              customerEmail,
+              previousStatus,
+              cancellationReason: order.cancellationReason || undefined,
+              paymentStatus: order.paymentStatus || 'pending',
+              paymentMethod: order.paymentMethod || undefined,
+              items: order.items.map((item: any) => ({
+                name: item.name,
+                quantity: item.quantity,
+                price: item.price,
+                total: item.total,
+              })),
+              subtotal: order.subtotal,
+              shipping: order.shippingCost || 0,
+              tax: order.tax,
+              discount: order.discount || 0,
+              total: order.total,
+              shippingAddress: order.shippingAddress,
+              orderDate: orderDoc.createdAt || new Date(),
+              cancelledAt: order.cancelledAt || new Date(),
+            });
+            this.logger.log(`Order cancellation notification sent to admin ${admin.email} for order ${order.orderNumber}`);
+          }
+        }
+      } catch (error) {
+        this.logger.error(`Failed to send cancellation notification to admin: ${error instanceof Error ? error.message : String(error)}`);
+        // Don't fail cancellation if email fails
+      }
+    }
+
     // Transform items to include id field for each item and format product
     const transformedItems = order.items.map((item: any, index: number) => {
       const itemId = item._id?.toString() || `item-${index}`;
@@ -722,6 +767,26 @@ export class OrdersService {
 
     const orderDoc = order as any;
 
+    // Extract customer information from populated userId
+    let customer = {};
+    if (order.userId) {
+      if (typeof order.userId === 'object' && order.userId._id) {
+        // Populated user object
+        customer = {
+          id: order.userId._id.toString(),
+          email: order.userId.email || '',
+          firstName: order.userId.firstName || '',
+          lastName: order.userId.lastName || '',
+          phone: order.userId.phone || undefined,
+        };
+      } else if (order.userId instanceof Types.ObjectId) {
+        // Just ObjectId, no populated data
+        customer = {
+          id: order.userId.toString(),
+        };
+      }
+    }
+
     return {
       id: order._id?.toString() || order.id,
       orderNumber: order.orderNumber,
@@ -736,6 +801,7 @@ export class OrdersService {
       shippingAddress: order.shippingAddress,
       paymentStatus: order.paymentStatus || 'pending',
       paymentMethod: order.paymentMethod || undefined,
+      customer: customer,
       createdAt: orderDoc.createdAt || order.createdAt || new Date(),
       updatedAt: orderDoc.updatedAt || order.updatedAt || new Date(),
     };

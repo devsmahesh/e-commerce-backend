@@ -509,6 +509,201 @@ export class EmailService {
     await this.sendEmail(mailOptions);
   }
 
+  async sendOrderCancellationNotificationToAdmin(
+    adminEmail: string,
+    orderData: {
+      orderNumber: string;
+      customerName: string;
+      customerEmail: string;
+      previousStatus: string;
+      cancellationReason?: string;
+      paymentStatus: string;
+      paymentMethod?: string;
+      items: Array<{ name: string; quantity: number; price: number; total: number }>;
+      subtotal: number;
+      shipping: number;
+      tax: number;
+      discount: number;
+      total: number;
+      shippingAddress: {
+        street: string;
+        city: string;
+        state: string;
+        zipCode: string;
+        country: string;
+      };
+      orderDate: Date;
+      cancelledAt: Date;
+    },
+  ): Promise<void> {
+    const emailFrom = this.configService.get<string>('EMAIL_FROM') || 'noreply@ecommerce.com';
+    const apiUrl = this.configService.get<string>('API_URL') || 'http://localhost:8000';
+    const adminOrderUrl = `${apiUrl}/api/v1/admin/orders`;
+
+    const itemsHtml = orderData.items
+      .map(
+        (item) => `
+      <tr>
+        <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.name}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">${item.quantity}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">$${item.price.toFixed(2)}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">$${item.total.toFixed(2)}</td>
+      </tr>
+    `,
+      )
+      .join('');
+
+    const orderDateStr = new Date(orderData.orderDate).toLocaleString();
+    const cancelledDateStr = new Date(orderData.cancelledAt).toLocaleString();
+
+    const mailOptions = {
+      from: emailFrom,
+      to: adminEmail,
+      subject: `⚠️ Order Cancelled - ${orderData.orderNumber}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Order Cancellation Notification</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: #fff3cd; padding: 20px; border-radius: 5px; border-left: 4px solid #dc3545;">
+            <h1 style="color: #dc3545; margin-top: 0;">⚠️ Order Cancelled</h1>
+            <p style="font-size: 16px; font-weight: bold; color: #856404;">An order has been cancelled and requires your attention.</p>
+          </div>
+          <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ddd;">
+            <h2 style="margin-top: 0; color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">Order Information</h2>
+            <table style="width: 100%; margin: 15px 0;">
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold; width: 40%;">Order Number:</td>
+                <td style="padding: 8px 0;">${orderData.orderNumber}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold;">Order Date:</td>
+                <td style="padding: 8px 0;">${orderDateStr}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold;">Cancelled At:</td>
+                <td style="padding: 8px 0; color: #dc3545; font-weight: bold;">${cancelledDateStr}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold;">Previous Status:</td>
+                <td style="padding: 8px 0; text-transform: capitalize;">${orderData.previousStatus}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold;">Payment Status:</td>
+                <td style="padding: 8px 0; text-transform: capitalize; color: ${orderData.paymentStatus === 'paid' ? '#dc3545' : '#666'};">
+                  ${orderData.paymentStatus} ${orderData.paymentStatus === 'paid' ? '⚠️ (Refund may be required)' : ''}
+                </td>
+              </tr>
+              ${orderData.paymentMethod ? `
+              <tr>
+                <td style="padding: 8px 0; font-weight: bold;">Payment Method:</td>
+                <td style="padding: 8px 0;">${orderData.paymentMethod}</td>
+              </tr>
+              ` : ''}
+            </table>
+          </div>
+          <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ddd;">
+            <h2 style="margin-top: 0; color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">Customer Information</h2>
+            <p style="margin: 5px 0;"><strong>Name:</strong> ${orderData.customerName}</p>
+            <p style="margin: 5px 0;"><strong>Email:</strong> <a href="mailto:${orderData.customerEmail}" style="color: #007bff;">${orderData.customerEmail}</a></p>
+          </div>
+          ${orderData.cancellationReason ? `
+          <div style="background-color: #f8d7da; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #dc3545;">
+            <h3 style="margin-top: 0; color: #721c24;">Cancellation Reason</h3>
+            <p style="margin: 0; color: #721c24; font-style: italic;">"${orderData.cancellationReason}"</p>
+          </div>
+          ` : ''}
+          <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ddd;">
+            <h2 style="margin-top: 0; color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">Order Details</h2>
+            <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+              <thead>
+                <tr style="background-color: #f8f9fa;">
+                  <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Item</th>
+                  <th style="padding: 10px; text-align: center; border-bottom: 2px solid #ddd;">Qty</th>
+                  <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Price</th>
+                  <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${itemsHtml}
+              </tbody>
+            </table>
+            <div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #ddd;">
+              <p style="text-align: right; margin: 5px 0;"><strong>Subtotal:</strong> $${orderData.subtotal.toFixed(2)}</p>
+              ${orderData.shipping > 0 ? `<p style="text-align: right; margin: 5px 0;"><strong>Shipping:</strong> $${orderData.shipping.toFixed(2)}</p>` : ''}
+              ${orderData.tax > 0 ? `<p style="text-align: right; margin: 5px 0;"><strong>Tax:</strong> $${orderData.tax.toFixed(2)}</p>` : ''}
+              ${orderData.discount > 0 ? `<p style="text-align: right; margin: 5px 0; color: #28a745;"><strong>Discount:</strong> -$${orderData.discount.toFixed(2)}</p>` : ''}
+              <p style="text-align: right; margin: 15px 0; font-size: 18px; font-weight: bold; border-top: 2px solid #ddd; padding-top: 10px; color: #dc3545;">
+                <strong>Total: $${orderData.total.toFixed(2)}</strong>
+              </p>
+            </div>
+            <div style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 5px;">
+              <h3 style="margin-top: 0;">Shipping Address</h3>
+              <p style="margin: 5px 0;">${orderData.shippingAddress.street}</p>
+              <p style="margin: 5px 0;">${orderData.shippingAddress.city}, ${orderData.shippingAddress.state} ${orderData.shippingAddress.zipCode}</p>
+              <p style="margin: 5px 0;">${orderData.shippingAddress.country}</p>
+            </div>
+          </div>
+          ${orderData.paymentStatus === 'paid' ? `
+          <div style="background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #ffc107;">
+            <h3 style="margin-top: 0; color: #856404;">⚠️ Action Required</h3>
+            <p style="margin: 5px 0; color: #856404;">
+              This order was paid. You may need to process a refund for the customer.
+            </p>
+          </div>
+          ` : ''}
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${adminOrderUrl}" style="background-color: #dc3545; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">View Orders Dashboard</a>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        ⚠️ Order Cancelled
+        
+        An order has been cancelled and requires your attention.
+        
+        Order Information:
+        Order Number: ${orderData.orderNumber}
+        Order Date: ${orderDateStr}
+        Cancelled At: ${cancelledDateStr}
+        Previous Status: ${orderData.previousStatus}
+        Payment Status: ${orderData.paymentStatus} ${orderData.paymentStatus === 'paid' ? '(Refund may be required)' : ''}
+        ${orderData.paymentMethod ? `Payment Method: ${orderData.paymentMethod}\n` : ''}
+        
+        Customer Information:
+        Name: ${orderData.customerName}
+        Email: ${orderData.customerEmail}
+        
+        ${orderData.cancellationReason ? `Cancellation Reason: "${orderData.cancellationReason}"\n` : ''}
+        
+        Order Details:
+        ${orderData.items.map((item) => `${item.name} - Qty: ${item.quantity} - Price: $${item.price.toFixed(2)} - Total: $${item.total.toFixed(2)}`).join('\n')}
+        
+        Subtotal: $${orderData.subtotal.toFixed(2)}
+        ${orderData.shipping > 0 ? `Shipping: $${orderData.shipping.toFixed(2)}\n` : ''}
+        ${orderData.tax > 0 ? `Tax: $${orderData.tax.toFixed(2)}\n` : ''}
+        ${orderData.discount > 0 ? `Discount: -$${orderData.discount.toFixed(2)}\n` : ''}
+        Total: $${orderData.total.toFixed(2)}
+        
+        Shipping Address:
+        ${orderData.shippingAddress.street}
+        ${orderData.shippingAddress.city}, ${orderData.shippingAddress.state} ${orderData.shippingAddress.zipCode}
+        ${orderData.shippingAddress.country}
+        
+        ${orderData.paymentStatus === 'paid' ? '\n⚠️ Action Required: This order was paid. You may need to process a refund for the customer.\n' : ''}
+        
+        View orders dashboard: ${adminOrderUrl}
+      `,
+    };
+
+    await this.sendEmail(mailOptions);
+  }
+
   getSmtpStatus(): {
     configured: boolean;
     host?: string;
