@@ -2,9 +2,10 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Order, OrderDocument, OrderStatus } from './schemas/order.schema';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
@@ -123,7 +124,51 @@ export class OrdersService {
     cart.total = 0;
     await cart.save();
 
-    return order;
+    // Transform items to include id field for each item and format product
+    const transformedItems = order.items.map((item: any, index: number) => {
+      // Generate an id for the item (embedded documents don't have _id by default)
+      const itemId = item._id?.toString() || `item-${index}`;
+      
+      // Format product - productId is stored as ObjectId, convert it to string
+      // We also store name, image, price directly in the item for denormalization
+      const productId = item.productId 
+        ? (item.productId._id ? item.productId._id.toString() : item.productId.toString())
+        : '';
+
+      const product = {
+        id: productId,
+        name: item.name,
+        price: item.price,
+        image: item.image || '',
+      };
+
+      return {
+        id: itemId,
+        product: product,
+        quantity: item.quantity,
+        price: item.price,
+        total: item.total,
+      };
+    });
+
+    // Access timestamps directly from order document
+    const orderDoc = order as any;
+
+    return {
+      id: order._id.toString(), // Convert _id to id for frontend
+      orderNumber: order.orderNumber, // Required: Human-readable order number
+      items: transformedItems,
+      shippingAddress: order.shippingAddress,
+      subtotal: order.subtotal,
+      tax: order.tax,
+      shipping: order.shippingCost || 0, // Map shippingCost to shipping
+      discount: order.discount || 0,
+      total: order.total,
+      status: order.status,
+      paymentStatus: order.paymentStatus || 'pending', // Ensure paymentStatus is included
+      createdAt: orderDoc.createdAt || new Date(),
+      updatedAt: orderDoc.updatedAt || new Date(),
+    };
   }
 
   async findAll(userId?: string, page?: number, limit?: number, status?: OrderStatus) {
@@ -138,17 +183,17 @@ export class OrdersService {
     // If pagination params are provided, return paginated results
     if (page !== undefined && limit !== undefined) {
       const skip = (page - 1) * limit;
-      const [orders, total] = await Promise.all([
-        this.orderModel
-          .find(query)
-          .sort({ createdAt: -1 })
-          .skip(skip)
-          .limit(limit)
-          .populate('items.productId', 'name slug images')
-          .populate('userId', 'email firstName lastName')
-          .exec(),
-        this.orderModel.countDocuments(query),
-      ]);
+      const ordersPromise = this.orderModel
+        .find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('items.productId', 'name slug images')
+        .populate('userId', 'email firstName lastName')
+        .exec();
+      const totalPromise = this.orderModel.countDocuments(query);
+      const orders = await ordersPromise;
+      const total = await totalPromise;
 
       return {
         items: orders,
@@ -190,15 +235,34 @@ export class OrdersService {
     return order;
   }
 
-  async findByOrderNumber(orderNumber: string, userId?: string) {
-    const query: any = { orderNumber };
-    if (userId) {
-      query.userId = userId;
+  /**
+   * Find order by ID without populating userId (for ownership checks)
+   * This is more efficient when we only need to verify ownership
+   */
+  async findOneForVerification(id: string) {
+    // Validate ObjectId format
+    if (!Types.ObjectId.isValid(id)) {
+      throw new BadRequestException('Invalid order ID format');
     }
 
     const order = await this.orderModel
-      .findOne(query)
-      .populate('items.productId', 'name slug images')
+      .findById(id)
+      .select('userId status paymentStatus') // Only select fields needed for verification
+      .lean() // Return plain object for faster access
+      .exec();
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    return order;
+  }
+
+  async findByOrderNumber(orderNumber: string, user: { id: string; role?: string }) {
+    // Find order by order number (without userId filter to check ownership separately)
+    const order = await this.orderModel
+      .findOne({ orderNumber })
+      .populate('items.productId', 'name slug images price')
       .populate('userId', 'email firstName lastName')
       .populate('couponId', 'code value type')
       .exec();
@@ -206,6 +270,104 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException('Order not found');
     }
+
+    // Check authorization: user must own the order or be an admin
+    // Handle both populated and non-populated userId
+    let orderUserId: string;
+    if (order.userId instanceof Types.ObjectId) {
+      orderUserId = order.userId.toString();
+    } else if ((order.userId as any)?._id) {
+      // Populated user object
+      orderUserId = (order.userId as any)._id.toString();
+    } else {
+      // Fallback: try to convert to string
+      orderUserId = String(order.userId);
+    }
+    
+    const isOwner = orderUserId === user.id;
+    const isAdmin = user.role === 'admin';
+
+    if (!isOwner && !isAdmin) {
+      throw new ForbiddenException("You don't have permission to view this order");
+    }
+
+    // Transform items to include id field for each item and format product
+    const transformedItems = order.items.map((item: any, index: number) => {
+      // Generate an id for the item (embedded documents don't have _id by default)
+      const itemId = item._id?.toString() || `item-${index}`;
+      
+      // Format product - productId might be populated or just ObjectId
+      let productId = '';
+      let productName = item.name;
+      let productPrice = item.price;
+      let productImages: string[] = [];
+
+      if (item.productId) {
+        // If populated, extract from populated object
+        if (typeof item.productId === 'object' && item.productId._id) {
+          productId = item.productId._id.toString();
+          productName = item.productId.name || item.name;
+          productPrice = item.productId.price || item.price;
+          productImages = item.productId.images || [item.image || ''];
+        } else {
+          // If not populated, use stored values
+          productId = item.productId.toString();
+          productImages = [item.image || ''];
+        }
+      }
+
+      const product = {
+        id: productId,
+        name: productName,
+        images: productImages,
+        price: productPrice,
+      };
+
+      return {
+        id: itemId,
+        product: product,
+        quantity: item.quantity,
+        price: item.price,
+      };
+    });
+
+    return {
+      id: order._id.toString(), // Convert _id to id for frontend
+      orderNumber: order.orderNumber, // Required: Human-readable order number
+      items: transformedItems,
+      subtotal: order.subtotal,
+      tax: order.tax,
+      shipping: order.shippingCost || 0, // Map shippingCost to shipping
+      discount: order.discount || 0,
+      total: order.total,
+      status: order.status,
+      paymentStatus: order.paymentStatus || 'pending', // Ensure paymentStatus is included
+      shippingAddress: order.shippingAddress,
+      paymentMethod: order.paymentMethod || undefined,
+      trackingNumber: order.trackingNumber || undefined,
+      createdAt: (order as any).createdAt || new Date(),
+      updatedAt: (order as any).updatedAt || new Date(),
+    };
+  }
+
+  async findByRazorpayOrderId(razorpayOrderId: string) {
+    const order = await this.orderModel
+      .findOne({ razorpayOrderId })
+      .populate('items.productId', 'name slug images')
+      .populate('userId', 'email firstName lastName')
+      .populate('couponId', 'code value type')
+      .exec();
+
+    return order;
+  }
+
+  async findByRazorpayPaymentId(razorpayPaymentId: string) {
+    const order = await this.orderModel
+      .findOne({ razorpayPaymentId })
+      .populate('items.productId', 'name slug images')
+      .populate('userId', 'email firstName lastName')
+      .populate('couponId', 'code value type')
+      .exec();
 
     return order;
   }
@@ -264,6 +426,51 @@ export class OrdersService {
     order.paymentIntentId = paymentIntentId;
     order.paymentMethod = paymentMethod;
     order.status = OrderStatus.Paid;
+    await order.save();
+
+    return order;
+  }
+
+  async updateRazorpayPaymentStatus(
+    id: string,
+    data: {
+      razorpayOrderId?: string;
+      razorpayPaymentId?: string;
+      paymentStatus: 'pending' | 'paid' | 'failed' | 'refunded';
+      paymentMethod?: string;
+      paymentGateway?: string;
+    },
+  ) {
+    const order = await this.orderModel.findById(id);
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (data.razorpayOrderId) {
+      order.razorpayOrderId = data.razorpayOrderId;
+    }
+    if (data.razorpayPaymentId) {
+      order.razorpayPaymentId = data.razorpayPaymentId;
+    }
+    if (data.paymentStatus) {
+      order.paymentStatus = data.paymentStatus;
+    }
+    if (data.paymentMethod) {
+      order.paymentMethod = data.paymentMethod;
+    }
+    if (data.paymentGateway) {
+      order.paymentGateway = data.paymentGateway;
+    }
+
+    // Update order status based on payment status
+    if (data.paymentStatus === 'paid') {
+      order.status = OrderStatus.Paid;
+    } else if (data.paymentStatus === 'failed') {
+      order.status = OrderStatus.Pending;
+    } else if (data.paymentStatus === 'refunded') {
+      order.status = OrderStatus.Refunded;
+    }
+
     await order.save();
 
     return order;

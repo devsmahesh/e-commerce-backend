@@ -98,6 +98,18 @@ export class Order {
   paymentMethod?: string;
 
   @Prop()
+  razorpayOrderId?: string;
+
+  @Prop()
+  razorpayPaymentId?: string;
+
+  @Prop({ type: String, enum: ['pending', 'paid', 'failed', 'refunded'], default: 'pending' })
+  paymentStatus?: 'pending' | 'paid' | 'failed' | 'refunded';
+
+  @Prop()
+  paymentGateway?: string;
+
+  @Prop()
   trackingNumber?: string;
 
   @Prop()

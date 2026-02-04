@@ -66,23 +66,24 @@ export class OrdersController {
     );
   }
 
+  @Get('order-number/:orderNumber')
+  @ApiOperation({ summary: 'Get order by order number' })
+  @ApiResponse({ status: 200, description: 'Order retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Order not found' })
+  @ApiResponse({ status: 403, description: 'Forbidden - You don\'t have permission to view this order' })
+  async findByOrderNumber(
+    @CurrentUser() user: any,
+    @Param('orderNumber') orderNumber: string,
+  ) {
+    return this.ordersService.findByOrderNumber(orderNumber, user);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get order by ID' })
   @ApiResponse({ status: 200, description: 'Order retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Order not found' })
   async findOne(@CurrentUser() user: any, @Param('id') id: string) {
     return this.ordersService.findOne(id, user.id);
-  }
-
-  @Get('order-number/:orderNumber')
-  @ApiOperation({ summary: 'Get order by order number' })
-  @ApiResponse({ status: 200, description: 'Order retrieved successfully' })
-  @ApiResponse({ status: 404, description: 'Order not found' })
-  async findByOrderNumber(
-    @CurrentUser() user: any,
-    @Param('orderNumber') orderNumber: string,
-  ) {
-    return this.ordersService.findByOrderNumber(orderNumber, user.id);
   }
 
   @Put(':id/status')

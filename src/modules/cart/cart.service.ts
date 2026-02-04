@@ -23,10 +23,12 @@ export class CartService {
       cart = await this.cartModel.create({ userId, items: [], total: 0 });
     }
 
-    // Recalculate total
-    await this.calculateTotal(cart);
+    // Recalculate totals
+    const calculations = this.calculateCartTotals(cart);
+    cart.total = calculations.total;
 
-    return cart;
+    // Format response with proper structure
+    return this.formatCartResponse(cart, calculations);
   }
 
   async addToCart(userId: string, addToCartDto: AddToCartDto) {
@@ -58,12 +60,11 @@ export class CartService {
     );
 
     if (existingItemIndex > -1) {
-      // Update quantity
-      const newQuantity = cart.items[existingItemIndex].quantity + quantity;
-      if (product.stock < newQuantity) {
+      // Replace quantity (don't add to existing)
+      if (product.stock < quantity) {
         throw new BadRequestException('Insufficient stock');
       }
-      cart.items[existingItemIndex].quantity = newQuantity;
+      cart.items[existingItemIndex].quantity = quantity;
       cart.items[existingItemIndex].price = product.price;
     } else {
       // Add new item
@@ -143,11 +144,60 @@ export class CartService {
   }
 
   private async calculateTotal(cart: CartDocument) {
-    let total = 0;
+    const calculations = this.calculateCartTotals(cart);
+    cart.total = calculations.total;
+  }
+
+  private calculateCartTotals(cart: CartDocument) {
+    let subtotal = 0;
     for (const item of cart.items) {
-      total += item.price * item.quantity;
+      subtotal += item.price * item.quantity;
     }
-    cart.total = total;
+
+    const tax = subtotal * 0.1; // 10% tax - adjust as needed
+    const shipping = 0; // Shipping cost is typically set during checkout
+    const discount = 0; // Discount is applied during order creation
+    const total = subtotal + shipping + tax - discount;
+
+    return {
+      subtotal,
+      tax,
+      shipping,
+      discount,
+      total,
+    };
+  }
+
+  private formatCartResponse(cart: CartDocument, calculations: any) {
+    const formattedItems = cart.items.map((item: any, index: number) => {
+      const product = item.productId;
+      // Use productId as item id since cart items are embedded documents
+      const itemId = item.productId?._id?.toString() || item.productId?.toString() || `item-${index}`;
+      
+      return {
+        id: itemId,
+        product: product && typeof product === 'object' && product._id
+          ? {
+              id: product._id.toString(),
+              name: product.name,
+              price: product.price,
+              images: product.images || [],
+            }
+          : null,
+        quantity: item.quantity,
+        price: item.price,
+      };
+    });
+
+    return {
+      id: cart._id?.toString(),
+      items: formattedItems,
+      subtotal: calculations.subtotal,
+      tax: calculations.tax,
+      shipping: calculations.shipping,
+      discount: calculations.discount,
+      total: calculations.total,
+    };
   }
 }
 

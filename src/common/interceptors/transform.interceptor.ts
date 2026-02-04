@@ -28,6 +28,29 @@ export class TransformInterceptor<T>
           return data;
         }
 
+        // Check if this is a Razorpay order response (has 'id' field starting with 'order_')
+        // Razorpay orders should be returned directly without wrapping
+        if (
+          data &&
+          typeof data === 'object' &&
+          'id' in data &&
+          typeof data.id === 'string' &&
+          data.id.startsWith('order_')
+        ) {
+          return data as any;
+        }
+
+        // Check if this is an order response (has 'orderNumber' field)
+        // Orders should be returned directly without wrapping so frontend can access id and orderNumber
+        if (
+          data &&
+          typeof data === 'object' &&
+          'orderNumber' in data &&
+          'id' in data
+        ) {
+          return data as any;
+        }
+
         return {
           success: true,
           message: 'Success',

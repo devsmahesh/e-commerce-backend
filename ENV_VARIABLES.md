@@ -34,6 +34,16 @@ STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key_here
 STRIPE_PUBLISHABLE_KEY=pk_test_your_stripe_publishable_key_here
 # Get webhook secret from: https://dashboard.stripe.com/webhooks
 STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret_here
+
+# ============================================
+# RAZORPAY PAYMENT INTEGRATION (Optional)
+# ============================================
+# Get your keys from: https://dashboard.razorpay.com/app/keys
+RAZORPAY_KEY_ID=your_razorpay_key_id
+RAZORPAY_KEY_SECRET=your_razorpay_key_secret
+# Get webhook secret from: https://dashboard.razorpay.com/app/webhooks
+# Optional, but recommended for webhook verification
+RAZORPAY_WEBHOOK_SECRET=your_webhook_secret
 ```
 
 ## Optional Variables
