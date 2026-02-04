@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -12,14 +13,21 @@ import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { Cart, CartDocument } from '../cart/schemas/cart.schema';
 import { Product, ProductDocument } from '../products/schemas/product.schema';
 import { Coupon, CouponDocument } from '../coupons/schemas/coupon.schema';
+import { User, UserDocument } from '../auth/schemas/user.schema';
+import { EmailService } from '../email/email.service';
+import { Role } from '../../common/decorators/roles.decorator';
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     @InjectModel(Order.name) private orderModel: Model<OrderDocument>,
     @InjectModel(Cart.name) private cartModel: Model<CartDocument>,
     @InjectModel(Product.name) private productModel: Model<ProductDocument>,
     @InjectModel(Coupon.name) private couponModel: Model<CouponDocument>,
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
+    private emailService: EmailService,
   ) {}
 
   async create(userId: string, createOrderDto: CreateOrderDto) {
@@ -124,6 +132,9 @@ export class OrdersService {
     cart.total = 0;
     await cart.save();
 
+    // Populate user to get email and name for emails
+    await order.populate('userId', 'email firstName lastName');
+
     // Transform items to include id field for each item and format product
     const transformedItems = order.items.map((item: any, index: number) => {
       // Generate an id for the item (embedded documents don't have _id by default)
@@ -153,6 +164,66 @@ export class OrdersService {
 
     // Access timestamps directly from order document
     const orderDoc = order as any;
+
+    // Send order confirmation email to user
+    try {
+      const user = order.userId as any;
+      if (user && user.email) {
+        await this.emailService.sendOrderConfirmationEmail(user.email, {
+          orderNumber: order.orderNumber,
+          items: order.items.map((item: any) => ({
+            name: item.name,
+            quantity: item.quantity,
+            price: item.price,
+            total: item.total,
+          })),
+          subtotal: order.subtotal,
+          shipping: order.shippingCost || 0,
+          tax: order.tax,
+          discount: order.discount || 0,
+          total: order.total,
+          shippingAddress: order.shippingAddress,
+        });
+        this.logger.log(`Order confirmation email sent to ${user.email} for order ${order.orderNumber}`);
+      }
+    } catch (error) {
+      this.logger.error(`Failed to send order confirmation email: ${error instanceof Error ? error.message : String(error)}`);
+      // Don't fail order creation if email fails
+    }
+
+    // Send notification email to all admin users
+    try {
+      const adminUsers = await this.userModel.find({ role: Role.Admin, isActive: true }).select('email firstName lastName').lean();
+      const user = order.userId as any;
+      const customerName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : 'Customer';
+      const customerEmail = user?.email || 'Unknown';
+
+      for (const admin of adminUsers) {
+        if (admin.email) {
+          await this.emailService.sendNewOrderNotificationToAdmin(admin.email, {
+            orderNumber: order.orderNumber,
+            customerName,
+            customerEmail,
+            items: order.items.map((item: any) => ({
+              name: item.name,
+              quantity: item.quantity,
+              price: item.price,
+              total: item.total,
+            })),
+            subtotal: order.subtotal,
+            shipping: order.shippingCost || 0,
+            tax: order.tax,
+            discount: order.discount || 0,
+            total: order.total,
+            shippingAddress: order.shippingAddress,
+          });
+          this.logger.log(`New order notification sent to admin ${admin.email} for order ${order.orderNumber}`);
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Failed to send admin notification email: ${error instanceof Error ? error.message : String(error)}`);
+      // Don't fail order creation if email fails
+    }
 
     return {
       id: order._id.toString(), // Convert _id to id for frontend
@@ -195,8 +266,11 @@ export class OrdersService {
       const orders = await ordersPromise;
       const total = await totalPromise;
 
+      // Transform orders to ensure trackingNumber is included
+      const transformedOrders = orders.map((order) => this.transformOrderResponse(order));
+
       return {
-        items: orders,
+        items: transformedOrders,
         meta: {
           total,
           page,
@@ -207,12 +281,15 @@ export class OrdersService {
     }
 
     // Otherwise return all results (backward compatibility)
-    return this.orderModel
+    const orders = await this.orderModel
       .find(query)
       .sort({ createdAt: -1 })
       .populate('items.productId', 'name slug images')
       .populate('userId', 'email firstName lastName')
       .exec();
+
+    // Transform orders to ensure trackingNumber is included
+    return orders.map((order) => this.transformOrderResponse(order));
   }
 
   async findOne(id: string, userId?: string) {
@@ -232,7 +309,8 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
-    return order;
+    // Transform order to ensure trackingNumber is included
+    return this.transformOrderResponse(order);
   }
 
   /**
@@ -386,8 +464,11 @@ export class OrdersService {
     const previousStatus = order.status;
     order.status = updateDto.status;
 
-    if (updateDto.trackingNumber) {
-      order.trackingNumber = updateDto.trackingNumber;
+    // Handle tracking number: update if provided (including null to remove tracking)
+    if (updateDto.trackingNumber !== undefined) {
+      // Transform already handles trimming and empty string -> null conversion
+      // Convert null to undefined to match the schema type
+      order.trackingNumber = updateDto.trackingNumber ?? undefined;
     }
 
     if (updateDto.status === OrderStatus.Shipped && !order.shippedAt) {
@@ -414,7 +495,86 @@ export class OrdersService {
 
     await order.save();
 
-    return order;
+    // Populate related fields for response
+    await order.populate('items.productId', 'name slug images');
+    await order.populate('userId', 'email firstName lastName');
+    await order.populate('couponId', 'code value type');
+
+    // Send status update email to user if status changed
+    if (previousStatus !== updateDto.status) {
+      try {
+        const user = order.userId as any;
+        if (user && user.email) {
+          await this.emailService.sendOrderStatusUpdateEmail(user.email, {
+            orderNumber: order.orderNumber,
+            status: updateDto.status,
+            trackingNumber: order.trackingNumber || undefined,
+            cancellationReason: order.cancellationReason || undefined,
+          });
+          this.logger.log(`Order status update email sent to ${user.email} for order ${order.orderNumber}`);
+        }
+      } catch (error) {
+        this.logger.error(`Failed to send order status update email: ${error instanceof Error ? error.message : String(error)}`);
+        // Don't fail status update if email fails
+      }
+    }
+
+    // Transform items to include id field for each item and format product
+    const transformedItems = order.items.map((item: any, index: number) => {
+      const itemId = item._id?.toString() || `item-${index}`;
+      
+      let productId = '';
+      let productName = item.name;
+      let productPrice = item.price;
+      let productImages: string[] = [];
+
+      if (item.productId) {
+        if (typeof item.productId === 'object' && item.productId._id) {
+          productId = item.productId._id.toString();
+          productName = item.productId.name || item.name;
+          productPrice = item.productId.price || item.price;
+          productImages = item.productId.images || [item.image || ''];
+        } else {
+          productId = item.productId.toString();
+          productImages = [item.image || ''];
+        }
+      }
+
+      const product = {
+        id: productId,
+        name: productName,
+        images: productImages,
+        price: productPrice,
+      };
+
+      return {
+        id: itemId,
+        product: product,
+        quantity: item.quantity,
+        price: item.price,
+        total: item.total,
+      };
+    });
+
+    const orderDoc = order as any;
+
+    // Return formatted response matching frontend expectations
+    return {
+      id: order._id.toString(),
+      orderNumber: order.orderNumber,
+      status: order.status,
+      trackingNumber: order.trackingNumber || undefined,
+      items: transformedItems,
+      subtotal: order.subtotal,
+      tax: order.tax,
+      shipping: order.shippingCost || 0,
+      discount: order.discount || 0,
+      total: order.total,
+      shippingAddress: order.shippingAddress,
+      paymentStatus: order.paymentStatus || 'pending',
+      createdAt: orderDoc.createdAt || new Date(),
+      updatedAt: orderDoc.updatedAt || new Date(),
+    };
   }
 
   async updatePaymentInfo(id: string, paymentIntentId: string, paymentMethod: string) {
@@ -423,10 +583,31 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
+    const previousStatus = order.status;
     order.paymentIntentId = paymentIntentId;
     order.paymentMethod = paymentMethod;
     order.status = OrderStatus.Paid;
     await order.save();
+
+    // Populate user for email
+    await order.populate('userId', 'email firstName lastName');
+
+    // Send status update email to user if status changed
+    if (previousStatus !== OrderStatus.Paid) {
+      try {
+        const user = order.userId as any;
+        if (user && user.email) {
+          await this.emailService.sendOrderStatusUpdateEmail(user.email, {
+            orderNumber: order.orderNumber,
+            status: OrderStatus.Paid,
+          });
+          this.logger.log(`Payment confirmation email sent to ${user.email} for order ${order.orderNumber}`);
+        }
+      } catch (error) {
+        this.logger.error(`Failed to send payment confirmation email: ${error instanceof Error ? error.message : String(error)}`);
+        // Don't fail payment update if email fails
+      }
+    }
 
     return order;
   }
@@ -445,6 +626,8 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException('Order not found');
     }
+
+    const previousStatus = order.status;
 
     if (data.razorpayOrderId) {
       order.razorpayOrderId = data.razorpayOrderId;
@@ -473,7 +656,89 @@ export class OrdersService {
 
     await order.save();
 
+    // Populate user for email
+    await order.populate('userId', 'email firstName lastName');
+
+    // Send status update email to user if status changed
+    if (previousStatus !== order.status) {
+      try {
+        const user = order.userId as any;
+        if (user && user.email) {
+          await this.emailService.sendOrderStatusUpdateEmail(user.email, {
+            orderNumber: order.orderNumber,
+            status: order.status,
+          });
+          this.logger.log(`Payment status update email sent to ${user.email} for order ${order.orderNumber}`);
+        }
+      } catch (error) {
+        this.logger.error(`Failed to send payment status update email: ${error instanceof Error ? error.message : String(error)}`);
+        // Don't fail payment update if email fails
+      }
+    }
+
     return order;
+  }
+
+  /**
+   * Transform a MongoDB order document to a formatted response object
+   */
+  private transformOrderResponse(order: any): any {
+    // Transform items to include id field for each item and format product
+    const transformedItems = order.items?.map((item: any, index: number) => {
+      const itemId = item._id?.toString() || `item-${index}`;
+      
+      let productId = '';
+      let productName = item.name;
+      let productPrice = item.price;
+      let productImages: string[] = [];
+
+      if (item.productId) {
+        if (typeof item.productId === 'object' && item.productId._id) {
+          productId = item.productId._id.toString();
+          productName = item.productId.name || item.name;
+          productPrice = item.productId.price || item.price;
+          productImages = item.productId.images || [item.image || ''];
+        } else {
+          productId = item.productId.toString();
+          productImages = [item.image || ''];
+        }
+      }
+
+      const product = {
+        id: productId,
+        name: productName,
+        images: productImages,
+        price: productPrice,
+      };
+
+      return {
+        id: itemId,
+        product: product,
+        quantity: item.quantity,
+        price: item.price,
+        total: item.total || item.price * item.quantity,
+      };
+    }) || [];
+
+    const orderDoc = order as any;
+
+    return {
+      id: order._id?.toString() || order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      trackingNumber: order.trackingNumber || undefined,
+      items: transformedItems,
+      subtotal: order.subtotal,
+      tax: order.tax,
+      shipping: order.shippingCost || 0,
+      discount: order.discount || 0,
+      total: order.total,
+      shippingAddress: order.shippingAddress,
+      paymentStatus: order.paymentStatus || 'pending',
+      paymentMethod: order.paymentMethod || undefined,
+      createdAt: orderDoc.createdAt || order.createdAt || new Date(),
+      updatedAt: orderDoc.updatedAt || order.updatedAt || new Date(),
+    };
   }
 
   private generateOrderNumber(): string {

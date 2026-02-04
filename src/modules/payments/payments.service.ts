@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import Stripe from 'stripe';
 import { OrdersService } from '../orders/orders.service';
-import { OrderStatus } from '../orders/schemas/order.schema';
+import { OrderStatus, OrderItem } from '../orders/schemas/order.schema';
 
 @Injectable()
 export class PaymentsService {
@@ -29,7 +29,7 @@ export class PaymentsService {
       throw new BadRequestException('Order is not in pending status');
     }
 
-    const lineItems = order.items.map((item) => ({
+    const lineItems = order.items.map((item: OrderItem) => ({
       price_data: {
         currency: 'usd',
         product_data: {

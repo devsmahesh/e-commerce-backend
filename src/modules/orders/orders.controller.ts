@@ -89,8 +89,32 @@ export class OrdersController {
   @Put(':id/status')
   @UseGuards(RolesGuard)
   @Roles(Role.Admin)
-  @ApiOperation({ summary: 'Update order status (Admin only)' })
-  @ApiResponse({ status: 200, description: 'Order status updated' })
+  @ApiOperation({ summary: 'Update order status and tracking number (Admin only)' })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Order status updated successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        orderNumber: { type: 'string' },
+        status: { type: 'string' },
+        trackingNumber: { type: 'string', nullable: true },
+        items: { type: 'array' },
+        subtotal: { type: 'number' },
+        tax: { type: 'number' },
+        shipping: { type: 'number' },
+        discount: { type: 'number' },
+        total: { type: 'number' },
+        shippingAddress: { type: 'object' },
+        paymentStatus: { type: 'string' },
+        createdAt: { type: 'string' },
+        updatedAt: { type: 'string' },
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Invalid status or tracking number' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
   @ApiResponse({ status: 404, description: 'Order not found' })
   async updateStatus(
     @Param('id') id: string,

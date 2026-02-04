@@ -109,7 +109,7 @@ export class Order {
   @Prop()
   paymentGateway?: string;
 
-  @Prop()
+  @Prop({ trim: true, maxlength: 100 })
   trackingNumber?: string;
 
   @Prop()

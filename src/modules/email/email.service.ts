@@ -163,6 +163,352 @@ export class EmailService {
     await this.sendEmail(mailOptions);
   }
 
+  async sendOrderConfirmationEmail(
+    email: string,
+    orderData: {
+      orderNumber: string;
+      items: Array<{ name: string; quantity: number; price: number; total: number }>;
+      subtotal: number;
+      shipping: number;
+      tax: number;
+      discount: number;
+      total: number;
+      shippingAddress: {
+        street: string;
+        city: string;
+        state: string;
+        zipCode: string;
+        country: string;
+      };
+    },
+  ): Promise<void> {
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+    const emailFrom = this.configService.get<string>('EMAIL_FROM') || 'noreply@ecommerce.com';
+    const orderUrl = `${frontendUrl}/orders/${orderData.orderNumber}`;
+
+    const itemsHtml = orderData.items
+      .map(
+        (item) => `
+      <tr>
+        <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.name}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">${item.quantity}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">$${item.price.toFixed(2)}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">$${item.total.toFixed(2)}</td>
+      </tr>
+    `,
+      )
+      .join('');
+
+    const mailOptions = {
+      from: emailFrom,
+      to: email,
+      subject: `Order Confirmation - ${orderData.orderNumber}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Order Confirmation</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px;">
+            <h1 style="color: #28a745; margin-top: 0;">Thank You for Your Order!</h1>
+            <p>Your order has been received and is being processed.</p>
+            <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <h2 style="margin-top: 0; color: #333;">Order Details</h2>
+              <p><strong>Order Number:</strong> ${orderData.orderNumber}</p>
+              <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+                <thead>
+                  <tr style="background-color: #f8f9fa;">
+                    <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Item</th>
+                    <th style="padding: 10px; text-align: center; border-bottom: 2px solid #ddd;">Qty</th>
+                    <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Price</th>
+                    <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${itemsHtml}
+                </tbody>
+              </table>
+              <div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #ddd;">
+                <p style="text-align: right; margin: 5px 0;"><strong>Subtotal:</strong> $${orderData.subtotal.toFixed(2)}</p>
+                ${orderData.shipping > 0 ? `<p style="text-align: right; margin: 5px 0;"><strong>Shipping:</strong> $${orderData.shipping.toFixed(2)}</p>` : ''}
+                ${orderData.tax > 0 ? `<p style="text-align: right; margin: 5px 0;"><strong>Tax:</strong> $${orderData.tax.toFixed(2)}</p>` : ''}
+                ${orderData.discount > 0 ? `<p style="text-align: right; margin: 5px 0; color: #28a745;"><strong>Discount:</strong> -$${orderData.discount.toFixed(2)}</p>` : ''}
+                <p style="text-align: right; margin: 15px 0; font-size: 18px; font-weight: bold; border-top: 2px solid #ddd; padding-top: 10px;">
+                  <strong>Total: $${orderData.total.toFixed(2)}</strong>
+                </p>
+              </div>
+              <div style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 5px;">
+                <h3 style="margin-top: 0;">Shipping Address</h3>
+                <p style="margin: 5px 0;">${orderData.shippingAddress.street}</p>
+                <p style="margin: 5px 0;">${orderData.shippingAddress.city}, ${orderData.shippingAddress.state} ${orderData.shippingAddress.zipCode}</p>
+                <p style="margin: 5px 0;">${orderData.shippingAddress.country}</p>
+              </div>
+            </div>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${orderUrl}" style="background-color: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">View Order</a>
+            </div>
+            <p style="font-size: 12px; color: #666; margin-top: 30px;">
+              If you have any questions about your order, please contact our support team.
+            </p>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        Thank You for Your Order!
+        
+        Your order has been received and is being processed.
+        
+        Order Number: ${orderData.orderNumber}
+        
+        Order Details:
+        ${orderData.items.map((item) => `${item.name} - Qty: ${item.quantity} - Price: $${item.price.toFixed(2)} - Total: $${item.total.toFixed(2)}`).join('\n')}
+        
+        Subtotal: $${orderData.subtotal.toFixed(2)}
+        ${orderData.shipping > 0 ? `Shipping: $${orderData.shipping.toFixed(2)}\n` : ''}
+        ${orderData.tax > 0 ? `Tax: $${orderData.tax.toFixed(2)}\n` : ''}
+        ${orderData.discount > 0 ? `Discount: -$${orderData.discount.toFixed(2)}\n` : ''}
+        Total: $${orderData.total.toFixed(2)}
+        
+        Shipping Address:
+        ${orderData.shippingAddress.street}
+        ${orderData.shippingAddress.city}, ${orderData.shippingAddress.state} ${orderData.shippingAddress.zipCode}
+        ${orderData.shippingAddress.country}
+        
+        View your order: ${orderUrl}
+      `,
+    };
+
+    await this.sendEmail(mailOptions);
+  }
+
+  async sendOrderStatusUpdateEmail(
+    email: string,
+    orderData: {
+      orderNumber: string;
+      status: string;
+      trackingNumber?: string;
+      cancellationReason?: string;
+    },
+  ): Promise<void> {
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+    const emailFrom = this.configService.get<string>('EMAIL_FROM') || 'noreply@ecommerce.com';
+    const orderUrl = `${frontendUrl}/orders/${orderData.orderNumber}`;
+
+    const statusMessages: Record<string, { title: string; message: string; color: string }> = {
+      paid: {
+        title: 'Payment Received',
+        message: 'Your payment has been received and your order is being processed.',
+        color: '#007bff',
+      },
+      processing: {
+        title: 'Order Processing',
+        message: 'Your order is being prepared for shipment.',
+        color: '#ffc107',
+      },
+      shipped: {
+        title: 'Order Shipped',
+        message: 'Your order has been shipped and is on its way!',
+        color: '#17a2b8',
+      },
+      delivered: {
+        title: 'Order Delivered',
+        message: 'Your order has been delivered. Thank you for shopping with us!',
+        color: '#28a745',
+      },
+      cancelled: {
+        title: 'Order Cancelled',
+        message: 'Your order has been cancelled.',
+        color: '#dc3545',
+      },
+      refunded: {
+        title: 'Order Refunded',
+        message: 'Your order has been refunded.',
+        color: '#6c757d',
+      },
+    };
+
+    const statusInfo = statusMessages[orderData.status.toLowerCase()] || {
+      title: 'Order Status Updated',
+      message: `Your order status has been updated to: ${orderData.status}`,
+      color: '#007bff',
+    };
+
+    const mailOptions = {
+      from: emailFrom,
+      to: email,
+      subject: `Order ${statusInfo.title} - ${orderData.orderNumber}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Order Status Update</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px;">
+            <h1 style="color: ${statusInfo.color}; margin-top: 0;">${statusInfo.title}</h1>
+            <p>${statusInfo.message}</p>
+            <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <p><strong>Order Number:</strong> ${orderData.orderNumber}</p>
+              <p><strong>Status:</strong> <span style="color: ${statusInfo.color}; font-weight: bold; text-transform: capitalize;">${orderData.status}</span></p>
+              ${orderData.trackingNumber ? `<p><strong>Tracking Number:</strong> ${orderData.trackingNumber}</p>` : ''}
+              ${orderData.cancellationReason ? `<p><strong>Cancellation Reason:</strong> ${orderData.cancellationReason}</p>` : ''}
+            </div>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${orderUrl}" style="background-color: ${statusInfo.color}; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">View Order</a>
+            </div>
+            <p style="font-size: 12px; color: #666; margin-top: 30px;">
+              If you have any questions about your order, please contact our support team.
+            </p>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        ${statusInfo.title}
+        
+        ${statusInfo.message}
+        
+        Order Number: ${orderData.orderNumber}
+        Status: ${orderData.status}
+        ${orderData.trackingNumber ? `Tracking Number: ${orderData.trackingNumber}\n` : ''}
+        ${orderData.cancellationReason ? `Cancellation Reason: ${orderData.cancellationReason}\n` : ''}
+        
+        View your order: ${orderUrl}
+      `,
+    };
+
+    await this.sendEmail(mailOptions);
+  }
+
+  async sendNewOrderNotificationToAdmin(
+    adminEmail: string,
+    orderData: {
+      orderNumber: string;
+      customerName: string;
+      customerEmail: string;
+      items: Array<{ name: string; quantity: number; price: number; total: number }>;
+      subtotal: number;
+      shipping: number;
+      tax: number;
+      discount: number;
+      total: number;
+      shippingAddress: {
+        street: string;
+        city: string;
+        state: string;
+        zipCode: string;
+        country: string;
+      };
+    },
+  ): Promise<void> {
+    const emailFrom = this.configService.get<string>('EMAIL_FROM') || 'noreply@ecommerce.com';
+    const apiUrl = this.configService.get<string>('API_URL') || 'http://localhost:8000';
+    const adminOrderUrl = `${apiUrl}/api/v1/admin/orders`;
+
+    const itemsHtml = orderData.items
+      .map(
+        (item) => `
+      <tr>
+        <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.name}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">${item.quantity}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">$${item.price.toFixed(2)}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">$${item.total.toFixed(2)}</td>
+      </tr>
+    `,
+      )
+      .join('');
+
+    const mailOptions = {
+      from: emailFrom,
+      to: adminEmail,
+      subject: `New Order Received - ${orderData.orderNumber}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>New Order Notification</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px;">
+            <h1 style="color: #007bff; margin-top: 0;">New Order Received!</h1>
+            <p>A new order has been placed and requires your attention.</p>
+            <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <h2 style="margin-top: 0; color: #333;">Order Details</h2>
+              <p><strong>Order Number:</strong> ${orderData.orderNumber}</p>
+              <p><strong>Customer:</strong> ${orderData.customerName} (${orderData.customerEmail})</p>
+              <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+                <thead>
+                  <tr style="background-color: #f8f9fa;">
+                    <th style="padding: 10px; text-align: left; border-bottom: 2px solid #ddd;">Item</th>
+                    <th style="padding: 10px; text-align: center; border-bottom: 2px solid #ddd;">Qty</th>
+                    <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Price</th>
+                    <th style="padding: 10px; text-align: right; border-bottom: 2px solid #ddd;">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${itemsHtml}
+                </tbody>
+              </table>
+              <div style="margin-top: 20px; padding-top: 15px; border-top: 2px solid #ddd;">
+                <p style="text-align: right; margin: 5px 0;"><strong>Subtotal:</strong> $${orderData.subtotal.toFixed(2)}</p>
+                ${orderData.shipping > 0 ? `<p style="text-align: right; margin: 5px 0;"><strong>Shipping:</strong> $${orderData.shipping.toFixed(2)}</p>` : ''}
+                ${orderData.tax > 0 ? `<p style="text-align: right; margin: 5px 0;"><strong>Tax:</strong> $${orderData.tax.toFixed(2)}</p>` : ''}
+                ${orderData.discount > 0 ? `<p style="text-align: right; margin: 5px 0; color: #28a745;"><strong>Discount:</strong> -$${orderData.discount.toFixed(2)}</p>` : ''}
+                <p style="text-align: right; margin: 15px 0; font-size: 18px; font-weight: bold; border-top: 2px solid #ddd; padding-top: 10px;">
+                  <strong>Total: $${orderData.total.toFixed(2)}</strong>
+                </p>
+              </div>
+              <div style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 5px;">
+                <h3 style="margin-top: 0;">Shipping Address</h3>
+                <p style="margin: 5px 0;">${orderData.shippingAddress.street}</p>
+                <p style="margin: 5px 0;">${orderData.shippingAddress.city}, ${orderData.shippingAddress.state} ${orderData.shippingAddress.zipCode}</p>
+                <p style="margin: 5px 0;">${orderData.shippingAddress.country}</p>
+              </div>
+            </div>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${adminOrderUrl}" style="background-color: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">View Orders Dashboard</a>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        New Order Received!
+        
+        A new order has been placed and requires your attention.
+        
+        Order Number: ${orderData.orderNumber}
+        Customer: ${orderData.customerName} (${orderData.customerEmail})
+        
+        Order Details:
+        ${orderData.items.map((item) => `${item.name} - Qty: ${item.quantity} - Price: $${item.price.toFixed(2)} - Total: $${item.total.toFixed(2)}`).join('\n')}
+        
+        Subtotal: $${orderData.subtotal.toFixed(2)}
+        ${orderData.shipping > 0 ? `Shipping: $${orderData.shipping.toFixed(2)}\n` : ''}
+        ${orderData.tax > 0 ? `Tax: $${orderData.tax.toFixed(2)}\n` : ''}
+        ${orderData.discount > 0 ? `Discount: -$${orderData.discount.toFixed(2)}\n` : ''}
+        Total: $${orderData.total.toFixed(2)}
+        
+        Shipping Address:
+        ${orderData.shippingAddress.street}
+        ${orderData.shippingAddress.city}, ${orderData.shippingAddress.state} ${orderData.shippingAddress.zipCode}
+        ${orderData.shippingAddress.country}
+        
+        View orders dashboard: ${adminOrderUrl}
+      `,
+    };
+
+    await this.sendEmail(mailOptions);
+  }
+
   getSmtpStatus(): {
     configured: boolean;
     host?: string;
