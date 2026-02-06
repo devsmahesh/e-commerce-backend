@@ -26,9 +26,17 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { RawBodyMiddleware } from './common/middleware/raw-body.middleware';
+import { ServeStaticModule } from '@nestjs/serve-static';
+import { join } from 'path';
+
 
 @Module({
   imports: [
+    // Static files (ADD THIS)
+    ServeStaticModule.forRoot({
+      rootPath: join(process.cwd(), 'public'),
+    }),
+
     // Configuration
     ConfigModule.forRoot({
       isGlobal: true,
@@ -43,7 +51,8 @@ import { RawBodyMiddleware } from './common/middleware/raw-body.middleware';
         JWT_REFRESH_SECRET: Joi.string().required(),
         JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),
         JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
-        STRIPE_SECRET_KEY: Joi.string().required(),
+        // Stripe is no longer required; keep keys optional for backward compatibility
+        STRIPE_SECRET_KEY: Joi.string().optional(),
         STRIPE_WEBHOOK_SECRET: Joi.string().optional(),
         REDIS_URL: Joi.string().optional(),
         SMTP_HOST: Joi.string().optional(),
