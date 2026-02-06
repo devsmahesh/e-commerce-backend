@@ -54,7 +54,10 @@ import { RawBodyMiddleware } from './common/middleware/raw-body.middleware';
         EMAIL_FROM: Joi.string().optional(),
         FRONTEND_URL: Joi.string().optional(),
         API_URL: Joi.string().optional(),
-        // Cloudinary (optional - for image uploads)
+        BACKEND_URL: Joi.string().optional(),
+        // Storage configuration
+        USE_LOCAL_STORAGE: Joi.string().valid('true', 'false').optional(),
+        // Cloudinary (optional - for image uploads, ignored if USE_LOCAL_STORAGE=true)
         CLOUDINARY_CLOUD_NAME: Joi.string().optional(),
         CLOUDINARY_API_KEY: Joi.string().optional(),
         CLOUDINARY_API_SECRET: Joi.string().optional(),

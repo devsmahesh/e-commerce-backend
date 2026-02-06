@@ -20,7 +20,10 @@ export class FileUploadService {
     const cloudinaryApiKey = this.configService.get<string>('CLOUDINARY_API_KEY');
     const cloudinaryApiSecret = this.configService.get<string>('CLOUDINARY_API_SECRET');
 
-    this.useCloudinary = !!(cloudinaryCloudName && cloudinaryApiKey && cloudinaryApiSecret);
+    // Force local storage if USE_LOCAL_STORAGE is set to true
+    const useLocalStorage = this.configService.get<string>('USE_LOCAL_STORAGE') === 'true';
+    
+    this.useCloudinary = !useLocalStorage && !!(cloudinaryCloudName && cloudinaryApiKey && cloudinaryApiSecret);
 
     if (this.useCloudinary) {
       cloudinary.config({
@@ -28,10 +31,14 @@ export class FileUploadService {
         api_key: cloudinaryApiKey,
         api_secret: cloudinaryApiSecret,
       });
+      console.log('☁️  Using Cloudinary for image storage');
+    } else {
+      console.log('📁 Using local file system for image storage');
     }
 
     // Set base upload directory for local storage
     this.baseUploadDir = path.join(process.cwd(), 'public', 'uploads');
+    console.log(`📂 Base upload directory: ${this.baseUploadDir}`);
   }
 
   private async ensureUploadDirectory(folder: string): Promise<string> {
@@ -124,6 +131,7 @@ export class FileUploadService {
     try {
       // Ensure upload directory exists
       const uploadDir = await this.ensureUploadDirectory(folder);
+      console.log(`📁 Upload directory ensured: ${uploadDir}`);
 
       // Generate unique filename
       const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
@@ -135,18 +143,29 @@ export class FileUploadService {
 
       // Write file to disk
       await fs.writeFile(filepath, file.buffer);
+      console.log(`✅ File saved: ${filepath}`);
 
       // Generate URL - use BACKEND_URL from env or config
       let apiUrl = process.env.BACKEND_URL || this.configService.get<string>('BACKEND_URL');
       if (!apiUrl) {
+        // Try API_URL as fallback
+        apiUrl = process.env.API_URL || this.configService.get<string>('API_URL');
+      }
+      if (!apiUrl) {
         const port = process.env.PORT || 3000;
         apiUrl = `http://localhost:${port}`;
+        console.warn(`⚠️  BACKEND_URL not set, using default: ${apiUrl}`);
       }
+      
       const url = `${apiUrl}/uploads/${folder}/${filename}`;
+      console.log(`🔗 Generated URL: ${url}`);
 
       return { url };
     } catch (error) {
-      throw new InternalServerErrorException('Failed to upload image. Please try again.');
+      console.error('❌ Error uploading file:', error);
+      throw new InternalServerErrorException(
+        `Failed to upload image: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
     }
   }
 

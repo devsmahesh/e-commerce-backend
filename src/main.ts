@@ -89,6 +89,11 @@ async function bootstrap() {
   // Files in public/uploads/ are served at /uploads/ (not under /api/v1)
   // Using Express static middleware directly for better control
   const uploadsPath = join(process.cwd(), 'public', 'uploads');
+  
+  // Log the uploads path for debugging
+  console.log(`📁 Uploads directory: ${uploadsPath}`);
+  
+  // Use Express static middleware - this must be registered before setGlobalPrefix
   app.use(
     '/uploads',
     express.static(uploadsPath, {
@@ -100,11 +105,16 @@ async function bootstrap() {
           res.setHeader('Content-Type', getContentType(path));
         }
       },
+      // Don't redirect, just return 404 if file not found
+      redirect: false,
     }),
   );
 
   // Global prefix (applied after static files)
-  app.setGlobalPrefix('api/v1');
+  // This ensures /uploads routes are NOT prefixed with /api/v1
+  app.setGlobalPrefix('api/v1', {
+    exclude: ['/uploads/(.*)'],
+  });
 
   // Global validation pipe
   app.useGlobalPipes(
