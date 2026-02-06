@@ -9,13 +9,13 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    rawBody: true, // Required for Stripe webhooks
+    rawBody: true, // Required for payment webhooks (e.g., Razorpay)
   });
 
   // Security
   app.use(helmet());
   app.enableCors({
-    origin: process.env.FRONTEND_URL || '*',
+    origin: ['http://localhost:3000', 'https://runiche.vercel.app'],
     credentials: true,
   });
 
