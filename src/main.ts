@@ -4,23 +4,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import compression from 'compression';
-import { join } from 'path';
-import * as express from 'express';
-import { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';
-
-// Helper function to get content type based on file extension
-function getContentType(filePath: string): string {
-  const ext = filePath.toLowerCase().split('.').pop();
-  const contentTypes: Record<string, string> = {
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    png: 'image/png',
-    gif: 'image/gif',
-    webp: 'image/webp',
-  };
-  return contentTypes[ext || ''] || 'application/octet-stream';
-}
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -85,44 +69,9 @@ async function bootstrap() {
   // Compression
   app.use(compression());
 
-  // Serve static files (for local image storage) - BEFORE global prefix
-  // This allows accessing uploaded images via /uploads/categories/filename.jpg
-  // Files in public/uploads/ are served at /uploads/ (not under /api/v1)
-  // Using Express static middleware directly for better control
-  const uploadsPath = join(process.cwd(), 'public', 'uploads');
-  
-  // Log the uploads path for debugging
-  console.log(`📁 Uploads directory: ${uploadsPath}`);
-  
-  // Use Express static middleware - this must be registered before setGlobalPrefix
-  // Add logging middleware to debug requests
-  app.use('/uploads', (req: Request, res: Response, next: NextFunction) => {
-    console.log(`📥 Static file request: ${req.method} ${req.path}`);
-    next();
-  });
-
-  app.use(
-    '/uploads',
-    express.static(uploadsPath, {
-      setHeaders: (res, path) => {
-        console.log(`📤 Serving file: ${path}`);
-        if (path.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
-          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-          res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-          res.setHeader('Access-Control-Allow-Origin', '*');
-          res.setHeader('Content-Type', getContentType(path));
-        }
-      },
-      // Don't redirect, just return 404 if file not found
-      redirect: false,
-    }),
-  );
-
-  // Global prefix (applied after static files)
-  // Exclude /uploads routes from the global prefix using regex pattern
-  app.setGlobalPrefix('api/v1', {
-    exclude: ['/uploads(.*)'],
-  });
+  // Global prefix - all routes are under /api/v1
+  // Note: Images are now served from Cloudinary, not local file system
+  app.setGlobalPrefix('api/v1');
 
   // Global validation pipe
   app.useGlobalPipes(

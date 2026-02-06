@@ -20,7 +20,6 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
-import { UploadsModule } from './modules/uploads/uploads.module';
 import { RedisModule } from './config/redis/redis.module';
 import { EmailModule } from './modules/email/email.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -56,12 +55,10 @@ import { RawBodyMiddleware } from './common/middleware/raw-body.middleware';
         FRONTEND_URL: Joi.string().optional(),
         API_URL: Joi.string().optional(),
         BACKEND_URL: Joi.string().optional(),
-        // Storage configuration
-        USE_LOCAL_STORAGE: Joi.string().valid('true', 'false').optional(),
-        // Cloudinary (optional - for image uploads, ignored if USE_LOCAL_STORAGE=true)
-        CLOUDINARY_CLOUD_NAME: Joi.string().optional(),
-        CLOUDINARY_API_KEY: Joi.string().optional(),
-        CLOUDINARY_API_SECRET: Joi.string().optional(),
+        // Cloudinary (REQUIRED - for image uploads)
+        CLOUDINARY_CLOUD_NAME: Joi.string().required(),
+        CLOUDINARY_API_KEY: Joi.string().required(),
+        CLOUDINARY_API_SECRET: Joi.string().required(),
       }),
     }),
 
@@ -100,7 +97,6 @@ import { RawBodyMiddleware } from './common/middleware/raw-body.middleware';
     CouponsModule,
     AdminModule,
     AnalyticsModule,
-    UploadsModule,
   ],
   controllers: [AppController],
   providers: [

@@ -184,26 +184,24 @@ export class CategoriesService {
       return imagePath;
     }
 
-    // Extract filename from path (handles both full URLs and relative paths)
-    let filename: string;
+    // If it's already a Cloudinary URL, return it as-is
+    if (imagePath.includes('res.cloudinary.com') || imagePath.startsWith('https://res.cloudinary.com')) {
+      return imagePath;
+    }
+
+    // If it's already a full URL (but not Cloudinary), return it as-is
+    // This handles old local URLs that are still in the database
     if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
-      // Extract filename from full URL
-      const urlParts = imagePath.split('/');
-      filename = urlParts[urlParts.length - 1] || imagePath;
-    } else {
-      // Extract filename from relative path
-      filename = imagePath.includes('/') ? (imagePath.split('/').pop() || imagePath) : imagePath;
+      // Old local file URLs will be broken, but we return them as-is
+      // The frontend can handle broken images or the user needs to re-upload
+      return imagePath;
     }
-    
-    // Get base URL - use BACKEND_URL from env or config
-    let apiUrl = process.env.BACKEND_URL || this.configService.get<string>('BACKEND_URL');
-    if (!apiUrl) {
-      const port = process.env.PORT || 3000;
-      apiUrl = `http://localhost:${port}`;
-    }
-    
-    // Return full URL: baseurl/uploads/folder/filename
-    return `${apiUrl}/uploads/${folder}/${filename}`;
+
+    // If it's just a filename or relative path, it's likely an old local file reference
+    // Since we're using Cloudinary now, we can't serve these files
+    // Return as-is (will be broken, but that's expected for old data)
+    console.warn(`⚠️  Old local file reference detected: ${imagePath}. Please re-upload this image to Cloudinary.`);
+    return imagePath;
   }
 
   private transformCategoryImage(category: any): any {
