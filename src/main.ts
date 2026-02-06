@@ -5,7 +5,21 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import compression from 'compression';
 import { join } from 'path';
+import * as express from 'express';
 import { AppModule } from './app.module';
+
+// Helper function to get content type based on file extension
+function getContentType(filePath: string): string {
+  const ext = filePath.toLowerCase().split('.').pop();
+  const contentTypes: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    webp: 'image/webp',
+  };
+  return contentTypes[ext || ''] || 'application/octet-stream';
+}
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -73,17 +87,21 @@ async function bootstrap() {
   // Serve static files (for local image storage) - BEFORE global prefix
   // This allows accessing uploaded images via /uploads/categories/filename.jpg
   // Files in public/uploads/ are served at /uploads/ (not under /api/v1)
-  app.useStaticAssets(join(process.cwd(), 'public', 'uploads'), {
-    prefix: '/uploads/',
-    // Set proper headers for images
-    setHeaders: (res, path) => {
-      if (path.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
-        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-        res.setHeader('Access-Control-Allow-Origin', '*');
-      }
-    },
-  });
+  // Using Express static middleware directly for better control
+  const uploadsPath = join(process.cwd(), 'public', 'uploads');
+  app.use(
+    '/uploads',
+    express.static(uploadsPath, {
+      setHeaders: (res, path) => {
+        if (path.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Content-Type', getContentType(path));
+        }
+      },
+    }),
+  );
 
   // Global prefix (applied after static files)
   app.setGlobalPrefix('api/v1');
