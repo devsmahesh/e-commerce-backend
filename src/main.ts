@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import { join } from 'path';
 import * as express from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';
 
 // Helper function to get content type based on file extension
@@ -95,7 +96,7 @@ async function bootstrap() {
   
   // Use Express static middleware - this must be registered before setGlobalPrefix
   // Add logging middleware to debug requests
-  app.use('/uploads', (req, res, next) => {
+  app.use('/uploads', (req: Request, res: Response, next: NextFunction) => {
     console.log(`📥 Static file request: ${req.method} ${req.path}`);
     next();
   });
