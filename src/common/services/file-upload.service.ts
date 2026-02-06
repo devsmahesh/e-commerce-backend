@@ -21,7 +21,7 @@ export class FileUploadService {
     const cloudinaryApiSecret = this.configService.get<string>('CLOUDINARY_API_SECRET');
 
     // Force local storage if USE_LOCAL_STORAGE is set to true
-    const useLocalStorage = this.configService.get<string>('USE_LOCAL_STORAGE') === 'true';
+    const useLocalStorage = process.env.USE_LOCAL_STORAGE === 'true';
     
     this.useCloudinary = !useLocalStorage && !!(cloudinaryCloudName && cloudinaryApiKey && cloudinaryApiSecret);
 
