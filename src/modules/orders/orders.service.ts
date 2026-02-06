@@ -4,6 +4,8 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -16,6 +18,7 @@ import { Coupon, CouponDocument } from '../coupons/schemas/coupon.schema';
 import { User, UserDocument } from '../auth/schemas/user.schema';
 import { EmailService } from '../email/email.service';
 import { Role } from '../../common/decorators/roles.decorator';
+import { RazorpayService } from '../payments/razorpay.service';
 
 @Injectable()
 export class OrdersService {
@@ -28,6 +31,8 @@ export class OrdersService {
     @InjectModel(Coupon.name) private couponModel: Model<CouponDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     private emailService: EmailService,
+    @Inject(forwardRef(() => RazorpayService))
+    private razorpayService: RazorpayService,
   ) {}
 
   async create(userId: string, createOrderDto: CreateOrderDto) {
@@ -267,7 +272,7 @@ export class OrdersService {
       const total = await totalPromise;
 
       // Transform orders to ensure trackingNumber is included
-      const transformedOrders = orders.map((order) => this.transformOrderResponse(order));
+      const transformedOrders = orders.map((order: any) => this.transformOrderResponse(order));
 
       return {
         items: transformedOrders,
@@ -289,7 +294,7 @@ export class OrdersService {
       .exec();
 
     // Transform orders to ensure trackingNumber is included
-    return orders.map((order) => this.transformOrderResponse(order));
+    return orders.map((order: any) => this.transformOrderResponse(order));
   }
 
   async findOne(id: string, userId?: string) {
@@ -804,6 +809,348 @@ export class OrdersService {
       customer: customer,
       createdAt: orderDoc.createdAt || order.createdAt || new Date(),
       updatedAt: orderDoc.updatedAt || order.updatedAt || new Date(),
+    };
+  }
+
+  async cancelOrder(orderId: string, userId: string, userRole?: string) {
+    // Validate ObjectId format
+    if (!Types.ObjectId.isValid(orderId)) {
+      throw new BadRequestException('Invalid order ID format');
+    }
+
+    const order = await this.orderModel.findById(orderId);
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    // Check authorization: user must own the order or be an admin
+    const isAdmin = userRole === Role.Admin;
+    const orderUserId = order.userId instanceof Types.ObjectId
+      ? order.userId.toString()
+      : (order.userId as any)?._id?.toString() || String(order.userId);
+
+    if (!isAdmin && orderUserId !== userId) {
+      throw new ForbiddenException("You don't have permission to cancel this order");
+    }
+
+    // Check if order can be cancelled
+    const allowedStatuses = isAdmin ? [OrderStatus.Pending, OrderStatus.Processing] : [OrderStatus.Pending];
+    if (!allowedStatuses.includes(order.status)) {
+      const statusText = allowedStatuses.length === 1 ? allowedStatuses[0] : `${allowedStatuses.join(' or ')}`;
+      throw new BadRequestException(
+        `Order cannot be cancelled. Only ${statusText} orders can be cancelled.`,
+      );
+    }
+
+    // Check if already cancelled
+    if (order.status === OrderStatus.Cancelled) {
+      throw new BadRequestException('Order is already cancelled');
+    }
+
+    const previousStatus = order.status;
+    const previousPaymentStatus = order.paymentStatus;
+
+    // Update order status
+    order.status = OrderStatus.Cancelled;
+    order.cancelledAt = new Date();
+    // Note: updatedAt is automatically managed by Mongoose timestamps
+
+    // Handle payment refund if paid
+    if (previousPaymentStatus === 'paid' && order.razorpayPaymentId) {
+      try {
+        // Initiate refund with Razorpay
+        const refund = await this.razorpayService.createRefund(order.razorpayPaymentId, {
+          amount: order.total, // Amount in rupees, will be converted to paise
+          notes: {
+            orderId: order._id.toString(),
+            orderNumber: order.orderNumber,
+            reason: 'Order cancelled',
+            cancelledBy: isAdmin ? 'admin' : 'customer',
+          },
+        });
+
+        // Store refund details
+        order.refundId = refund.id;
+        order.refundStatus = refund.status === 'processed' ? 'processed' : 'pending';
+        order.refundAmount = refund.amount ? refund.amount / 100 : order.total; // Convert paise to rupees
+        order.refundedAt = new Date();
+        order.paymentStatus = 'refunded';
+
+        this.logger.log(`Refund successful for order ${order.orderNumber}: ${refund.id}`);
+      } catch (refundError: any) {
+        // Log refund failure but still cancel order
+        this.logger.error(
+          `Refund failed for order ${order.orderNumber}: ${refundError.message || String(refundError)}`,
+        );
+
+        // Store refund error details
+        order.refundError = refundError.message || 'Refund failed';
+        order.refundStatus = 'failed';
+
+        // Note: Order will still be cancelled, but payment status remains 'paid'
+        // Admin should manually process refund or retry
+      }
+    }
+
+    await order.save();
+
+    // Restore inventory
+    for (const item of order.items) {
+      await this.productModel.findByIdAndUpdate(item.productId, {
+        $inc: { stock: item.quantity, salesCount: -item.quantity },
+      });
+    }
+
+    // Update coupon usage if applicable
+    if (order.couponId) {
+      await this.couponModel.findByIdAndUpdate(order.couponId, {
+        $inc: { usageCount: -1 },
+      });
+    }
+
+    // Populate related fields for response
+    await order.populate('items.productId', 'name slug images');
+    await order.populate('userId', 'email firstName lastName');
+    await order.populate('couponId', 'code value type');
+
+    // Send cancellation email to user
+    try {
+      const user = order.userId as any;
+      if (user && user.email) {
+        await this.emailService.sendOrderStatusUpdateEmail(user.email, {
+          orderNumber: order.orderNumber,
+          status: OrderStatus.Cancelled,
+          cancellationReason: order.cancellationReason || undefined,
+        });
+        this.logger.log(`Order cancellation email sent to ${user.email} for order ${order.orderNumber}`);
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to send cancellation email: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    // Send cancellation notification to admin
+    try {
+      const user = order.userId as any;
+      const customerName = user
+        ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email
+        : 'Customer';
+      const customerEmail = user?.email || 'Unknown';
+      const orderDoc = order as any;
+
+      const adminUsers = await this.userModel
+        .find({ role: Role.Admin, isActive: true })
+        .select('email firstName lastName')
+        .lean();
+
+      for (const admin of adminUsers) {
+        if (admin.email) {
+          await this.emailService.sendOrderCancellationNotificationToAdmin(admin.email, {
+            orderNumber: order.orderNumber,
+            customerName,
+            customerEmail,
+            previousStatus,
+            cancellationReason: order.cancellationReason || undefined,
+            paymentStatus: order.paymentStatus || 'pending',
+            paymentMethod: order.paymentMethod || undefined,
+            items: order.items.map((item: any) => ({
+              name: item.name,
+              quantity: item.quantity,
+              price: item.price,
+              total: item.total,
+            })),
+            subtotal: order.subtotal,
+            shipping: order.shippingCost || 0,
+            tax: order.tax,
+            discount: order.discount || 0,
+            total: order.total,
+            shippingAddress: order.shippingAddress,
+            orderDate: orderDoc.createdAt || new Date(),
+            cancelledAt: order.cancelledAt || new Date(),
+          });
+          this.logger.log(
+            `Order cancellation notification sent to admin ${admin.email} for order ${order.orderNumber}`,
+          );
+        }
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to send cancellation notification to admin: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    // Transform and return updated order
+    return this.transformOrderResponse(order);
+  }
+
+  async refundOrder(orderId: string, amount?: number, reason?: string, refundedBy?: string) {
+    // Validate ObjectId format
+    if (!Types.ObjectId.isValid(orderId)) {
+      throw new BadRequestException('Invalid order ID format');
+    }
+
+    const order = await this.orderModel.findById(orderId);
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    // Check if already refunded
+    if (order.paymentStatus === 'refunded' && order.refundStatus === 'processed') {
+      throw new BadRequestException('Refund already processed for this order');
+    }
+
+    // Check if order was paid
+    if (order.paymentStatus !== 'paid') {
+      throw new BadRequestException(
+        'Order is not eligible for refund. Only paid orders can be refunded.',
+      );
+    }
+
+    // Check if payment ID exists
+    if (!order.razorpayPaymentId) {
+      throw new BadRequestException('Payment ID not found. Cannot process refund.');
+    }
+
+    // Validate payment ID format (Razorpay payment IDs start with 'pay_')
+    if (!order.razorpayPaymentId.startsWith('pay_')) {
+      this.logger.warn(
+        `Invalid Razorpay payment ID format: ${order.razorpayPaymentId}. Expected format: pay_xxxxx`,
+      );
+    }
+
+    // Determine refund amount
+    const refundAmountInRupees = amount !== undefined ? amount : order.total;
+    
+    // Log refund attempt details
+    this.logger.log(
+      `Attempting refund for order ${order.orderNumber}: Payment ID: ${order.razorpayPaymentId}, Amount: ${refundAmountInRupees} INR (${Math.round(refundAmountInRupees * 100)} paise)`,
+    );
+    if (refundAmountInRupees > order.total) {
+      throw new BadRequestException('Refund amount cannot exceed order total');
+    }
+
+    if (refundAmountInRupees <= 0) {
+      throw new BadRequestException('Refund amount must be greater than 0');
+    }
+
+    // Verify payment exists and get current refund status (MANDATORY)
+    let payment;
+    try {
+      payment = await this.razorpayService.fetchPayment(order.razorpayPaymentId);
+      
+      // Log payment details for debugging
+      this.logger.log(
+        `Payment details for ${order.razorpayPaymentId}: Status: ${payment.status}, Amount: ${payment.amount} paise, Refunded: ${payment.amount_refunded || 0} paise`,
+      );
+      
+      // Check if payment is captured (only captured payments can be refunded)
+      if (payment.status !== 'captured') {
+        throw new BadRequestException(
+          `Payment is not eligible for refund. Payment status: ${payment.status}. Only captured payments can be refunded.`,
+        );
+      }
+
+      // Check if payment has already been fully refunded
+      // Razorpay amounts are in paise (smallest currency unit) and may be strings or numbers
+      const refundedAmount = Number(payment.amount_refunded || 0);
+      const paymentAmount = Number(payment.amount || 0);
+      
+      if (refundedAmount >= paymentAmount) {
+        throw new BadRequestException('Payment has already been fully refunded.');
+      }
+
+      // Check if refund amount exceeds remaining refundable amount
+      const remainingRefundable = (paymentAmount - refundedAmount) / 100; // Convert paise to rupees
+      if (refundAmountInRupees > remainingRefundable) {
+        throw new BadRequestException(
+          `Refund amount (${refundAmountInRupees}) exceeds remaining refundable amount (${remainingRefundable}).`,
+        );
+      }
+    } catch (verifyError: any) {
+      // If it's already a BadRequestException, rethrow it
+      if (verifyError instanceof BadRequestException) {
+        throw verifyError;
+      }
+      
+      // Payment verification failed - don't proceed with refund
+      this.logger.error(
+        `Payment verification failed for ${order.razorpayPaymentId}: ${verifyError.message || String(verifyError)}`,
+      );
+      throw new BadRequestException(
+        `Cannot verify payment status: ${verifyError.message || 'Payment verification failed'}. Refund cannot be processed.`,
+      );
+    }
+
+    // Process refund via Razorpay
+    let refund;
+    try {
+      refund = await this.razorpayService.createRefund(order.razorpayPaymentId, {
+        amount: refundAmountInRupees,
+        notes: {
+          orderId: order._id.toString(),
+          orderNumber: order.orderNumber,
+          reason: reason || 'Admin refund',
+          refundedBy: refundedBy || 'admin',
+        },
+      });
+    } catch (refundError: any) {
+      // Log full error details for debugging
+      this.logger.error(
+        `Razorpay refund failed for order ${order.orderNumber} (Payment ID: ${order.razorpayPaymentId}):`,
+        JSON.stringify(refundError, null, 2),
+      );
+
+      // Extract error message from BadRequestException thrown by RazorpayService
+      // The error message is already formatted by RazorpayService
+      const errorMessage = refundError.message || refundError.response?.message || 'Refund failed';
+
+      throw new BadRequestException(errorMessage);
+    }
+
+    // Update order with refund details
+    order.refundId = refund.id;
+    order.refundStatus = refund.status === 'processed' ? 'processed' : 'pending';
+    order.refundAmount = refund.amount ? refund.amount / 100 : refundAmountInRupees; // Convert paise to rupees
+    order.refundedAt = new Date();
+    order.paymentStatus = 'refunded';
+    // Note: updatedAt is automatically managed by Mongoose timestamps
+
+    // If full refund, update order status to Refunded
+    if (refundAmountInRupees >= order.total) {
+      order.status = OrderStatus.Refunded;
+    }
+
+    await order.save();
+
+    // Populate related fields for response
+    await order.populate('items.productId', 'name slug images');
+    await order.populate('userId', 'email firstName lastName');
+    await order.populate('couponId', 'code value type');
+
+    // Send refund notification email to user
+    try {
+      const user = order.userId as any;
+      if (user && user.email) {
+        await this.emailService.sendOrderStatusUpdateEmail(user.email, {
+          orderNumber: order.orderNumber,
+          status: order.status,
+        });
+        this.logger.log(`Refund notification email sent to ${user.email} for order ${order.orderNumber}`);
+      }
+    } catch (error) {
+      this.logger.error(
+        `Failed to send refund notification email: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    const transformedOrder = this.transformOrderResponse(order);
+
+    return {
+      refundId: refund.id,
+      refundAmount: refund.amount ? refund.amount / 100 : refundAmountInRupees,
+      refundStatus: refund.status === 'processed' ? 'processed' : 'pending',
+      order: transformedOrder,
     };
   }
 

@@ -98,5 +98,60 @@ export class RazorpayService {
       );
     }
   }
+
+  async createRefund(paymentId: string, data: {
+    amount?: number;
+    notes?: Record<string, string>;
+  }) {
+    try {
+      const refundData: any = {};
+      
+      // If amount is provided, include it (for partial refunds)
+      // Amount should be in paise (smallest currency unit) and must be an integer
+      if (data.amount !== undefined && data.amount > 0) {
+        refundData.amount = Math.round(data.amount * 100); // Convert rupees to paise
+      }
+
+      // Only include notes if they exist and are not empty
+      // Razorpay requires notes values to be strings
+      if (data.notes && Object.keys(data.notes).length > 0) {
+        // Convert all note values to strings (Razorpay requirement)
+        const stringNotes: Record<string, string> = {};
+        for (const [key, value] of Object.entries(data.notes)) {
+          stringNotes[key] = String(value);
+        }
+        refundData.notes = stringNotes;
+      }
+
+      // Log the refund request for debugging
+      console.log('Razorpay refund request:', {
+        paymentId,
+        refundData: JSON.stringify(refundData),
+      });
+
+      const refund = await this.razorpay.payments.refund(paymentId, refundData);
+      return refund;
+    } catch (error: any) {
+      // Razorpay errors have a nested structure: error.error.description
+      let errorMessage = 'Unknown error';
+      
+      if (error.error) {
+        // Razorpay API error structure
+        errorMessage = error.error.description || error.error.message || JSON.stringify(error.error);
+      } else if (error.message) {
+        // Standard error message
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      }
+
+      // Log full error for debugging
+      console.error('Razorpay refund error:', JSON.stringify(error, null, 2));
+
+      throw new BadRequestException(
+        `Failed to create refund: ${errorMessage}`,
+      );
+    }
+  }
 }
 

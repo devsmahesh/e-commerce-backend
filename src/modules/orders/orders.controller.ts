@@ -17,6 +17,7 @@ import {
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { RefundOrderDto } from './dto/refund-order.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -84,6 +85,66 @@ export class OrdersController {
   @ApiResponse({ status: 404, description: 'Order not found' })
   async findOne(@CurrentUser() user: any, @Param('id') id: string) {
     return this.ordersService.findOne(id, user.id);
+  }
+
+  @Put(':id/cancel')
+  @ApiOperation({ summary: 'Cancel order' })
+  @ApiResponse({
+    status: 200,
+    description: 'Order cancelled successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        orderNumber: { type: 'string' },
+        status: { type: 'string', example: 'cancelled' },
+        items: { type: 'array' },
+        subtotal: { type: 'number' },
+        tax: { type: 'number' },
+        shipping: { type: 'number' },
+        discount: { type: 'number' },
+        total: { type: 'number' },
+        shippingAddress: { type: 'object' },
+        paymentStatus: { type: 'string' },
+        paymentMethod: { type: 'string' },
+        createdAt: { type: 'string' },
+        updatedAt: { type: 'string' },
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Order cannot be cancelled' })
+  @ApiResponse({ status: 403, description: 'Forbidden - You don\'t have permission to cancel this order' })
+  @ApiResponse({ status: 404, description: 'Order not found' })
+  async cancelOrder(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.ordersService.cancelOrder(id, user.id, user.role);
+  }
+
+  @Post(':id/refund')
+  @UseGuards(RolesGuard)
+  @Roles(Role.Admin)
+  @ApiOperation({ summary: 'Refund order (Admin only)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Refund processed successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        refundId: { type: 'string' },
+        refundAmount: { type: 'number' },
+        refundStatus: { type: 'string' },
+        order: { type: 'object' },
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Order is not eligible for refund or refund failed' })
+  @ApiResponse({ status: 401, description: 'Unauthorized - Admin access required' })
+  @ApiResponse({ status: 404, description: 'Order not found' })
+  async refundOrder(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() refundDto: RefundOrderDto,
+  ) {
+    return this.ordersService.refundOrder(id, refundDto.amount, refundDto.reason, user.id);
   }
 
   @Put(':id/status')

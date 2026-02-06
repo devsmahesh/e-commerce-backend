@@ -27,15 +27,6 @@ JWT_ACCESS_EXPIRES_IN=15m
 JWT_REFRESH_EXPIRES_IN=7d
 
 # ============================================
-# STRIPE PAYMENT INTEGRATION (REQUIRED)
-# ============================================
-# Get your keys from: https://dashboard.stripe.com/apikeys
-STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key_here
-STRIPE_PUBLISHABLE_KEY=pk_test_your_stripe_publishable_key_here
-# Get webhook secret from: https://dashboard.stripe.com/webhooks
-STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret_here
-
-# ============================================
 # RAZORPAY PAYMENT INTEGRATION (Optional)
 # ============================================
 # Get your keys from: https://dashboard.razorpay.com/app/keys
@@ -106,17 +97,11 @@ node -e "console.log('JWT_ACCESS_SECRET=' + require('crypto').randomBytes(32).to
 node -e "console.log('JWT_REFRESH_SECRET=' + require('crypto').randomBytes(32).toString('hex'))"
 ```
 
-### 4. Get Stripe keys:
-- Sign up at https://stripe.com
-- Go to https://dashboard.stripe.com/apikeys
-- Copy your test keys
-- For webhook secret, go to https://dashboard.stripe.com/webhooks
-
-### 5. MongoDB:
+### 4. MongoDB:
 - Local: `mongodb://localhost:27017/ecommerce`
 - MongoDB Atlas: `mongodb+srv://username:password@cluster.mongodb.net/ecommerce`
 
-### 6. Redis (Optional):
+### 5. Redis (Optional):
 - Local: `redis://localhost:6379`
 - Redis Cloud: `redis://username:password@host:port`
 
@@ -130,7 +115,6 @@ NODE_ENV=development
 MONGO_URI=mongodb://localhost:27017/ecommerce
 JWT_ACCESS_SECRET=your-secret-key-min-32-chars
 JWT_REFRESH_SECRET=your-refresh-secret-key-min-32-chars
-STRIPE_SECRET_KEY=sk_test_your_key
 ```
 
 ## About Image Storage
@@ -149,7 +133,6 @@ Before deploying to production:
 
 - [ ] Change all default/example values
 - [ ] Use strong, randomly generated JWT secrets
-- [ ] Use production Stripe keys (not test keys)
 - [ ] Set `NODE_ENV=production`
 - [ ] Use secure MongoDB connection string
 - [ ] Configure proper CORS with `FRONTEND_URL`

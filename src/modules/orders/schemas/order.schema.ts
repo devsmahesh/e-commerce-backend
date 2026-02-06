@@ -123,6 +123,21 @@ export class Order {
 
   @Prop()
   cancellationReason?: string;
+
+  @Prop()
+  refundId?: string;
+
+  @Prop({ type: String, enum: ['processed', 'pending', 'failed'] })
+  refundStatus?: 'processed' | 'pending' | 'failed';
+
+  @Prop({ min: 0 })
+  refundAmount?: number;
+
+  @Prop()
+  refundedAt?: Date;
+
+  @Prop()
+  refundError?: string;
 }
 
 export const OrderSchema = SchemaFactory.createForClass(Order);
