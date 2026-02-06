@@ -11,6 +11,7 @@ import * as mongoose from 'mongoose';
 import { ConfigService } from '@nestjs/config';
 import { Product, ProductDocument } from './schemas/product.schema';
 import { Review, ReviewDocument, ReviewStatus } from '../reviews/schemas/review.schema';
+import { Category, CategoryDocument } from '../categories/schemas/category.schema';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { FilterProductsDto } from './dto/filter-products.dto';
@@ -23,6 +24,7 @@ export class ProductsService {
   constructor(
     @InjectModel(Product.name) private productModel: Model<ProductDocument>,
     @InjectModel(Review.name) private reviewModel: Model<ReviewDocument>,
+    @InjectModel(Category.name) private categoryModel: Model<CategoryDocument>,
     private redisService: RedisService,
     private configService: ConfigService,
   ) {}
@@ -74,8 +76,8 @@ export class ProductsService {
         inStock,
         isFeatured,
         isActive,
-        sortBy = 'createdAt',
-        sortOrder = 'desc',
+        sortBy = 'name',
+        sortOrder = 'asc',
         gheeType,
         minWeight,
         maxWeight,
@@ -83,8 +85,13 @@ export class ProductsService {
         origin,
       } = filterDto;
 
-      // Normalize empty search string to undefined
-      const search = rawSearch && rawSearch.trim().length > 0 ? rawSearch.trim() : undefined;
+      // Normalize and validate search string (minimum 2 characters)
+      const search = rawSearch && rawSearch.trim().length >= 2 ? rawSearch.trim() : undefined;
+      
+      // Validate search length if provided
+      if (rawSearch && rawSearch.trim().length > 0 && rawSearch.trim().length < 2) {
+        throw new BadRequestException('Search query must be at least 2 characters long');
+      }
 
     // Build cache key
     const cacheKey = `products:${JSON.stringify(filterDto)}`;
@@ -99,11 +106,16 @@ export class ProductsService {
             this.transformProductImages(item)
           );
         }
-        return cached;
+        // Return in expected format
+        return {
+          success: true,
+          message: 'Products retrieved successfully',
+          data: cached,
+        };
       }
     } catch (error) {
       // If Redis fails, continue without cache
-      console.warn('Redis cache error:', error.message);
+      this.logger.warn('Redis cache error:', error.message);
     }
 
     // Build query
@@ -116,8 +128,8 @@ export class ProductsService {
       query.isActive = true; // Default to active products for public endpoints
     }
 
-    // Only use text search if search is provided and not empty
-    if (search && search.trim().length > 0) {
+    // Enhanced search: Use text search if available (searches name, description, brand, tags, sku)
+    if (search && search.trim().length >= 2) {
       query.$text = { $search: search.trim() };
     }
 
@@ -175,23 +187,26 @@ export class ProductsService {
     }
 
     // Build sort - validate sortBy field
-    const validSortFields = ['price', 'rating', 'createdAt', 'salesCount', 'averageRating', 'name'];
-    const actualSortBy = validSortFields.includes(sortBy || '') ? (sortBy || 'createdAt') : 'createdAt';
+    const validSortFields = ['name', 'price', 'rating', 'createdAt', 'salesCount', 'averageRating'];
+    const actualSortBy = validSortFields.includes(sortBy || '') ? (sortBy || 'name') : 'name';
     
     // Map 'rating' to 'averageRating' for consistency
     const sortField = actualSortBy === 'rating' ? 'averageRating' : actualSortBy;
     
     const sort: any = {};
-    // Only use textScore if we're actually doing a text search
-    if (search && search.trim().length > 0) {
+    // Only use textScore if we're actually doing a text search (prioritize relevance)
+    if (search && search.trim().length >= 2) {
       sort.score = { $meta: 'textScore' };
+      // Secondary sort by the requested field
+      sort[sortField] = (sortOrder === 'asc' ? 1 : -1);
+    } else {
+      // No search: sort by the requested field
+      sort[sortField] = (sortOrder === 'asc' ? 1 : -1);
     }
-    // Always ensure we have at least one sort field
-    sort[sortField] = (sortOrder === 'asc' ? 1 : -1);
     
-    // If sort object is empty (shouldn't happen), default to createdAt
+    // Ensure we have at least one sort field (fallback)
     if (Object.keys(sort).length === 0) {
-      sort.createdAt = -1;
+      sort.name = 1;
     }
 
     // Execute query
@@ -238,15 +253,39 @@ export class ProductsService {
       total = await this.productModel.countDocuments(query).exec();
     } catch (error) {
       this.logger.error(`Products query error: ${error.message}`, error.stack);
-      // If text search fails (e.g., no text index), fall back to regex search
-      if (search && search.trim().length > 0 && (error.message?.includes('text index') || error.message?.includes('$text'))) {
+      // If text search fails (e.g., no text index), fall back to enhanced regex search
+      if (search && search.trim().length >= 2 && (error.message?.includes('text index') || error.message?.includes('$text'))) {
         // Fallback to regex search if text index doesn't exist
         delete query.$text;
         const searchRegex = new RegExp(search.trim(), 'i');
+        
+        // Find categories matching the search term
+        let matchingCategoryIds: string[] = [];
+        try {
+          const matchingCategories = await this.categoryModel
+            .find({ name: searchRegex })
+            .select('_id')
+            .lean()
+            .exec();
+          matchingCategoryIds = matchingCategories.map((cat: any) => String(cat._id));
+        } catch (catError) {
+          this.logger.warn('Error searching categories:', catError);
+        }
+        
+        // Enhanced regex search across multiple fields
         query.$or = [
           { name: searchRegex },
           { description: searchRegex },
+          { brand: searchRegex },
+          { sku: searchRegex },
+          { tags: { $in: [searchRegex] } },
         ];
+        
+        // Add category name search if categories found
+        if (matchingCategoryIds.length > 0) {
+          query.$or.push({ categoryId: { $in: matchingCategoryIds } });
+        }
+        
         delete sort.score;
         
         // Fallback query without populate to avoid errors
@@ -307,12 +346,23 @@ export class ProductsService {
       this.logger.warn('Redis cache error:', error.message);
     }
 
-    return result;
+    // Return in expected format (transform interceptor will handle wrapping if needed)
+    return {
+      success: true,
+      message: 'Products retrieved successfully',
+      data: result,
+    };
     } catch (error) {
       this.logger.error(`Error in findAll: ${error.message}`, error.stack);
-      // Re-throw with more context
+      
+      // Re-throw BadRequestException as-is (for validation errors)
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      
+      // Re-throw with more context for other errors
       const errorMessage = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to fetch products: ${errorMessage}`);
+      throw new Error(`Failed to retrieve products. Please try again.`);
     }
   }
 

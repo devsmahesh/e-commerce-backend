@@ -43,8 +43,38 @@ export class ProductsController {
 
   @Public()
   @Get()
-  @ApiOperation({ summary: 'Get all products with filters' })
-  @ApiResponse({ status: 200, description: 'Products retrieved successfully' })
+  @ApiOperation({ 
+    summary: 'Get all products with filters and search',
+    description: 'Search products across name, description, brand, tags, SKU, and category names. Supports pagination, filtering, and sorting. Minimum search length is 2 characters.'
+  })
+  @ApiResponse({ 
+    status: 200, 
+    description: 'Products retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Products retrieved successfully' },
+        data: {
+          type: 'object',
+          properties: {
+            items: { type: 'array', items: { type: 'object' } },
+            meta: {
+              type: 'object',
+              properties: {
+                page: { type: 'number', example: 1 },
+                limit: { type: 'number', example: 10 },
+                total: { type: 'number', example: 100 },
+                totalPages: { type: 'number', example: 10 },
+              },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Invalid search parameters (e.g., search query too short)' })
+  @ApiResponse({ status: 500, description: 'Failed to retrieve products' })
   async findAll(@Query() filterDto: FilterProductsDto) {
     return this.productsService.findAll(filterDto);
   }

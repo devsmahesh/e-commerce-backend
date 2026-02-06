@@ -88,7 +88,18 @@ ProductSchema.index({ isActive: 1 });
 ProductSchema.index({ isFeatured: 1 });
 ProductSchema.index({ price: 1 });
 ProductSchema.index({ averageRating: -1 });
-ProductSchema.index({ name: 'text', description: 'text' });
+// Enhanced text index for search across multiple fields
+ProductSchema.index({ 
+  name: 'text', 
+  description: 'text',
+  brand: 'text',
+  tags: 'text',
+  sku: 'text'
+});
+// Composite indexes for common query patterns
+ProductSchema.index({ isActive: 1, name: 1 });
+ProductSchema.index({ categoryId: 1, isActive: 1 });
+ProductSchema.index({ gheeType: 1, isActive: 1 });
 // Ghee-specific indexes
 ProductSchema.index({ gheeType: 1 });
 ProductSchema.index({ weight: 1 });

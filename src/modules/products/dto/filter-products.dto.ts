@@ -9,13 +9,22 @@ import {
   Max,
   IsArray,
   IsBoolean,
+  MinLength,
+  MaxLength,
 } from 'class-validator';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class FilterProductsDto extends PaginationDto {
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ 
+    description: 'Search query string (minimum 2 characters)',
+    minLength: 2,
+    maxLength: 100,
+    example: 'cow ghee'
+  })
   @IsOptional()
   @IsString()
+  @MinLength(2, { message: 'Search query must be at least 2 characters long' })
+  @MaxLength(100, { message: 'Search query must not exceed 100 characters' })
   @Type(() => String)
   search?: string;
 
@@ -70,14 +79,20 @@ export class FilterProductsDto extends PaginationDto {
   @IsBoolean()
   isActive?: boolean;
 
-  @ApiPropertyOptional({ enum: ['price', 'rating', 'createdAt', 'salesCount'] })
+  @ApiPropertyOptional({ 
+    enum: ['name', 'price', 'rating', 'createdAt', 'salesCount'],
+    description: 'Field to sort by',
+    default: 'createdAt'
+  })
   @IsOptional()
   @IsString()
-  sortBy?: 'price' | 'rating' | 'createdAt' | 'salesCount';
+  @IsEnum(['name', 'price', 'rating', 'createdAt', 'salesCount'])
+  sortBy?: 'name' | 'price' | 'rating' | 'createdAt' | 'salesCount';
 
-  @ApiPropertyOptional({ enum: ['asc', 'desc'], default: 'desc' })
+  @ApiPropertyOptional({ enum: ['asc', 'desc'], default: 'asc' })
   @IsOptional()
   @IsString()
+  @IsEnum(['asc', 'desc'])
   sortOrder?: 'asc' | 'desc';
 
   // Ghee-specific filters
