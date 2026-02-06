@@ -26,17 +26,9 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { RawBodyMiddleware } from './common/middleware/raw-body.middleware';
-import { ServeStaticModule } from '@nestjs/serve-static';
-import { join } from 'path';
-
 
 @Module({
   imports: [
-    // Static files (ADD THIS)
-    ServeStaticModule.forRoot({
-      rootPath: join(process.cwd(), 'public'),
-    }),
-
     // Configuration
     ConfigModule.forRoot({
       isGlobal: true,
