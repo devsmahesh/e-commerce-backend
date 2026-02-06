@@ -94,10 +94,17 @@ async function bootstrap() {
   console.log(`📁 Uploads directory: ${uploadsPath}`);
   
   // Use Express static middleware - this must be registered before setGlobalPrefix
+  // Add logging middleware to debug requests
+  app.use('/uploads', (req, res, next) => {
+    console.log(`📥 Static file request: ${req.method} ${req.path}`);
+    next();
+  });
+
   app.use(
     '/uploads',
     express.static(uploadsPath, {
       setHeaders: (res, path) => {
+        console.log(`📤 Serving file: ${path}`);
         if (path.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
           res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
           res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
@@ -111,9 +118,9 @@ async function bootstrap() {
   );
 
   // Global prefix (applied after static files)
-  // This ensures /uploads routes are NOT prefixed with /api/v1
+  // Exclude /uploads routes from the global prefix using regex pattern
   app.setGlobalPrefix('api/v1', {
-    exclude: ['/uploads/(.*)'],
+    exclude: ['/uploads(.*)'],
   });
 
   // Global validation pipe
