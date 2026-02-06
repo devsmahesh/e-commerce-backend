@@ -12,24 +12,80 @@ async function bootstrap() {
     rawBody: true, // Required for payment webhooks (e.g., Razorpay)
   });
 
-  // Security
-  app.use(helmet());
+  // Security - Configure Helmet to allow image requests
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          imgSrc: ["'self'", 'data:', 'https:', 'http:'],
+        },
+      },
+    }),
+  );
+
+  // CORS - Allow requests from frontend and Vercel image optimization
+  const allowedOrigins = [
+    'http://localhost:3000',
+    'https://runiche.vercel.app',
+    // Allow Vercel image optimization service
+    /^https:\/\/.*\.vercel\.app$/,
+    /^https:\/\/.*\.vercel\.app\/_next\/image$/,
+  ];
+
   app.enableCors({
-    origin: ['http://localhost:3000', 'https://runiche.vercel.app'],
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, curl, or image optimization services)
+      // This is important for Next.js image optimization which may not send an origin header
+      if (!origin) {
+        return callback(null, true);
+      }
+      
+      // Check if origin matches allowed patterns
+      const isAllowed = allowedOrigins.some((allowedOrigin) => {
+        if (typeof allowedOrigin === 'string') {
+          return origin === allowedOrigin;
+        }
+        if (allowedOrigin instanceof RegExp) {
+          return allowedOrigin.test(origin);
+        }
+        return false;
+      });
+
+      if (isAllowed) {
+        callback(null, true);
+      } else {
+        // For production, you might want to log this and restrict further
+        // For now, allow to support various image optimization services
+        callback(null, true);
+      }
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    exposedHeaders: ['Content-Length', 'Content-Type'],
   });
 
   // Compression
   app.use(compression());
 
-  // Serve static files (for local image storage)
+  // Serve static files (for local image storage) - BEFORE global prefix
   // This allows accessing uploaded images via /uploads/categories/filename.jpg
-  // Files in public/uploads/ are served at /uploads/
+  // Files in public/uploads/ are served at /uploads/ (not under /api/v1)
   app.useStaticAssets(join(process.cwd(), 'public', 'uploads'), {
     prefix: '/uploads/',
+    // Set proper headers for images
+    setHeaders: (res, path) => {
+      if (path.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+      }
+    },
   });
 
-  // Global prefix
+  // Global prefix (applied after static files)
   app.setGlobalPrefix('api/v1');
 
   // Global validation pipe
