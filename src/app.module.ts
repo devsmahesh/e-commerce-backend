@@ -21,6 +21,7 @@ import { CouponsModule } from './modules/coupons/coupons.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { BannersModule } from './modules/banners/banners.module';
+import { ContactModule } from './modules/contact/contact.module';
 import { RedisModule } from './config/redis/redis.module';
 import { EmailModule } from './modules/email/email.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -53,6 +54,8 @@ import { RawBodyMiddleware } from './common/middleware/raw-body.middleware';
         SMTP_USER: Joi.string().optional(),
         SMTP_PASS: Joi.string().optional(),
         EMAIL_FROM: Joi.string().optional(),
+        ADMIN_EMAIL: Joi.string().optional(),
+        LOGO_URL: Joi.string().optional(),
         FRONTEND_URL: Joi.string().optional(),
         API_URL: Joi.string().optional(),
         BACKEND_URL: Joi.string().optional(),
@@ -99,6 +102,7 @@ import { RawBodyMiddleware } from './common/middleware/raw-body.middleware';
     AdminModule,
     AnalyticsModule,
     BannersModule,
+    ContactModule,
   ],
   controllers: [AppController],
   providers: [

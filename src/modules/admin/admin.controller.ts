@@ -17,6 +17,10 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/decorators/roles.decorator';
 import { ReviewStatus } from '../reviews/schemas/review.schema';
+import { ContactStatus } from '../contact/schemas/contact.schema';
+import { UpdateContactDto } from '../contact/dto/update-contact.dto';
+import { ContactService } from '../contact/contact.service';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { FileUploadService } from '../../common/services/file-upload.service';
 import { multerConfig } from '../../common/config/multer.config';
 
@@ -29,6 +33,7 @@ export class AdminController {
   constructor(
     private readonly adminService: AdminService,
     private readonly fileUploadService: FileUploadService,
+    private readonly contactService: ContactService,
   ) {}
 
   @Get('dashboard')
@@ -253,6 +258,92 @@ export class AdminController {
   @ApiResponse({ status: 404, description: 'Review not found' })
   async deleteReview(@Param('id') id: string) {
     return this.adminService.deleteReview(id);
+  }
+
+  // Contact Management
+  @Get('contacts')
+  @ApiOperation({ summary: 'Get all contact form submissions' })
+  @ApiResponse({ status: 200, description: 'Contacts retrieved successfully' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  async getAllContacts(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+  ) {
+    let contactStatus: ContactStatus | undefined;
+    if (status) {
+      if (Object.values(ContactStatus).includes(status as ContactStatus)) {
+        contactStatus = status as ContactStatus;
+      } else {
+        throw new BadRequestException(
+          `Invalid status. Must be one of: ${Object.values(ContactStatus).join(', ')}`,
+        );
+      }
+    }
+
+    const result = await this.contactService.findAll(
+      page ? parseInt(page) : 1,
+      limit ? parseInt(limit) : 10,
+      contactStatus,
+      search,
+    );
+
+    return {
+      success: true,
+      message: 'Contacts retrieved successfully',
+      data: result,
+    };
+  }
+
+  @Get('contacts/:id')
+  @ApiOperation({ summary: 'Get contact submission by ID' })
+  @ApiResponse({ status: 200, description: 'Contact retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Contact not found' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  async getContactById(@Param('id') id: string) {
+    const contact = await this.contactService.findOne(id);
+    return {
+      success: true,
+      message: 'Contact retrieved successfully',
+      data: contact,
+    };
+  }
+
+  @Patch('contacts/:id')
+  @ApiOperation({ summary: 'Update contact status and notes' })
+  @ApiResponse({ status: 200, description: 'Contact updated successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid status or notes too long' })
+  @ApiResponse({ status: 404, description: 'Contact not found' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  async updateContact(
+    @Param('id') id: string,
+    @Body() updateContactDto: UpdateContactDto,
+    @CurrentUser() user: any,
+  ) {
+    const contact = await this.contactService.update(id, updateContactDto, user.id);
+    return {
+      success: true,
+      message: 'Contact updated successfully',
+      data: contact,
+    };
+  }
+
+  @Delete('contacts/:id')
+  @ApiOperation({ summary: 'Delete a contact submission' })
+  @ApiResponse({ status: 200, description: 'Contact deleted successfully' })
+  @ApiResponse({ status: 404, description: 'Contact not found' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  async deleteContact(@Param('id') id: string) {
+    await this.contactService.delete(id);
+    return {
+      success: true,
+      message: 'Contact deleted successfully',
+    };
   }
 }
 

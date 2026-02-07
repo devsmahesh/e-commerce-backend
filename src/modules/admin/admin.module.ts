@@ -8,6 +8,7 @@ import { Order, OrderSchema } from '../orders/schemas/order.schema';
 import { Coupon, CouponSchema } from '../coupons/schemas/coupon.schema';
 import { Review, ReviewSchema } from '../reviews/schemas/review.schema';
 import { Banner, BannerSchema } from './schemas/banner.schema';
+import { ContactModule } from '../contact/contact.module';
 import { FileUploadService } from '../../common/services/file-upload.service';
 
 @Module({
@@ -20,6 +21,7 @@ import { FileUploadService } from '../../common/services/file-upload.service';
       { name: Review.name, schema: ReviewSchema },
       { name: Banner.name, schema: BannerSchema },
     ]),
+    ContactModule,
   ],
   controllers: [AdminController],
   providers: [AdminService, FileUploadService],

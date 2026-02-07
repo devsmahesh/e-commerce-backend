@@ -7,6 +7,12 @@ export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private transporter: nodemailer.Transporter;
 
+  // Brand colors
+  private readonly PRIMARY_COLOR = '#67033F';
+  private readonly PRIMARY_FOREGROUND = '#FFFFFF';
+  private readonly SECONDARY_COLOR = '#F89C1D';
+  private readonly SECONDARY_FOREGROUND = '#0F172A';
+
   constructor(private configService: ConfigService) {
     const smtpHost = this.configService.get<string>('SMTP_HOST');
     const smtpPort = this.configService.get<string>('SMTP_PORT');
@@ -58,6 +64,7 @@ export class EmailService {
     const verificationUrl = `${frontendUrl}/verify-email/${token}`;
     const apiUrl = this.configService.get<string>('API_URL') || 'http://localhost:8000';
     const apiVerificationUrl = `${apiUrl}/api/v1/auth/verify-email/${token}`;
+    const logoUrl = this.getLogoUrl();
 
     const mailOptions = {
       from: emailFrom,
@@ -73,13 +80,14 @@ export class EmailService {
         </head>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px;">
-            <h1 style="color: #007bff; margin-top: 0;">Welcome to Our E-commerce Platform!</h1>
+            ${this.getEmailHeader(logoUrl)}
+            <h1 style="color: ${this.PRIMARY_COLOR}; margin-top: 0;">Welcome to Our E-commerce Platform!</h1>
             <p>Thank you for registering with us. To complete your registration, please verify your email address by clicking the button below:</p>
             <div style="text-align: center; margin: 30px 0;">
-              <a href="${verificationUrl}" style="background-color: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">Verify Email Address</a>
+              <a href="${verificationUrl}" style="background-color: ${this.SECONDARY_COLOR}; color: ${this.SECONDARY_FOREGROUND}; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">Verify Email Address</a>
             </div>
             <p>Or copy and paste this link into your browser:</p>
-            <p style="word-break: break-all; color: #007bff;">${verificationUrl}</p>
+            <p style="word-break: break-all; color: ${this.PRIMARY_COLOR};"><a href="${verificationUrl}" style="color: ${this.PRIMARY_COLOR};">${verificationUrl}</a></p>
             <p style="font-size: 12px; color: #666; margin-top: 30px;">
               <strong>Alternative API endpoint:</strong><br>
               ${apiVerificationUrl}
@@ -113,6 +121,7 @@ export class EmailService {
     const emailFrom = this.configService.get<string>('EMAIL_FROM') || 'noreply@ecommerce.com';
     const resetUrl = `${frontendUrl}/reset-password/${token}`;
     const apiUrl = this.configService.get<string>('API_URL') || 'http://localhost:8000';
+    const logoUrl = this.getLogoUrl();
 
     const mailOptions = {
       from: emailFrom,
@@ -128,13 +137,14 @@ export class EmailService {
         </head>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px;">
-            <h1 style="color: #dc3545; margin-top: 0;">Password Reset Request</h1>
+            ${this.getEmailHeader(logoUrl)}
+            <h1 style="color: ${this.PRIMARY_COLOR}; margin-top: 0;">Password Reset Request</h1>
             <p>You requested to reset your password. Click the button below to reset it:</p>
             <div style="text-align: center; margin: 30px 0;">
-              <a href="${resetUrl}" style="background-color: #dc3545; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">Reset Password</a>
+              <a href="${resetUrl}" style="background-color: ${this.SECONDARY_COLOR}; color: ${this.SECONDARY_FOREGROUND}; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">Reset Password</a>
             </div>
             <p>Or copy and paste this link into your browser:</p>
-            <p style="word-break: break-all; color: #dc3545;">${resetUrl}</p>
+            <p style="word-break: break-all; color: ${this.PRIMARY_COLOR};"><a href="${resetUrl}" style="color: ${this.PRIMARY_COLOR};">${resetUrl}</a></p>
             <p style="font-size: 12px; color: #666; margin-top: 30px;">
               <strong>Token:</strong> ${token}<br>
               <strong>API Endpoint:</strong> ${apiUrl}/api/v1/auth/reset-password
@@ -185,6 +195,7 @@ export class EmailService {
     const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
     const emailFrom = this.configService.get<string>('EMAIL_FROM') || 'noreply@ecommerce.com';
     const orderUrl = `${frontendUrl}/orders/${orderData.orderNumber}`;
+    const logoUrl = this.getLogoUrl();
 
     const itemsHtml = orderData.items
       .map(
@@ -213,7 +224,8 @@ export class EmailService {
         </head>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px;">
-            <h1 style="color: #28a745; margin-top: 0;">Thank You for Your Order!</h1>
+            ${this.getEmailHeader(logoUrl)}
+            <h1 style="color: ${this.PRIMARY_COLOR}; margin-top: 0;">Thank You for Your Order!</h1>
             <p>Your order has been received and is being processed.</p>
             <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0;">
               <h2 style="margin-top: 0; color: #333;">Order Details</h2>
@@ -248,7 +260,7 @@ export class EmailService {
               </div>
             </div>
             <div style="text-align: center; margin: 30px 0;">
-              <a href="${orderUrl}" style="background-color: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">View Order</a>
+              <a href="${orderUrl}" style="background-color: ${this.SECONDARY_COLOR}; color: ${this.SECONDARY_FOREGROUND}; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">View Order</a>
             </div>
             <p style="font-size: 12px; color: #666; margin-top: 30px;">
               If you have any questions about your order, please contact our support team.
@@ -334,8 +346,10 @@ export class EmailService {
     const statusInfo = statusMessages[orderData.status.toLowerCase()] || {
       title: 'Order Status Updated',
       message: `Your order status has been updated to: ${orderData.status}`,
-      color: '#007bff',
+      color: this.PRIMARY_COLOR,
     };
+
+    const logoUrl = this.getLogoUrl();
 
     const mailOptions = {
       from: emailFrom,
@@ -351,7 +365,8 @@ export class EmailService {
         </head>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px;">
-            <h1 style="color: ${statusInfo.color}; margin-top: 0;">${statusInfo.title}</h1>
+            ${this.getEmailHeader(logoUrl)}
+            <h1 style="color: ${this.PRIMARY_COLOR}; margin-top: 0;">${statusInfo.title}</h1>
             <p>${statusInfo.message}</p>
             <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0;">
               <p><strong>Order Number:</strong> ${orderData.orderNumber}</p>
@@ -360,7 +375,7 @@ export class EmailService {
               ${orderData.cancellationReason ? `<p><strong>Cancellation Reason:</strong> ${orderData.cancellationReason}</p>` : ''}
             </div>
             <div style="text-align: center; margin: 30px 0;">
-              <a href="${orderUrl}" style="background-color: ${statusInfo.color}; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">View Order</a>
+              <a href="${orderUrl}" style="background-color: ${this.SECONDARY_COLOR}; color: ${this.SECONDARY_FOREGROUND}; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">View Order</a>
             </div>
             <p style="font-size: 12px; color: #666; margin-top: 30px;">
               If you have any questions about your order, please contact our support team.
@@ -410,6 +425,7 @@ export class EmailService {
     const emailFrom = this.configService.get<string>('EMAIL_FROM') || 'noreply@ecommerce.com';
     const apiUrl = this.configService.get<string>('API_URL') || 'http://localhost:8000';
     const adminOrderUrl = `${apiUrl}/api/v1/admin/orders`;
+    const logoUrl = this.getLogoUrl();
 
     const itemsHtml = orderData.items
       .map(
@@ -438,7 +454,8 @@ export class EmailService {
         </head>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px;">
-            <h1 style="color: #007bff; margin-top: 0;">New Order Received!</h1>
+            ${this.getEmailHeader(logoUrl)}
+            <h1 style="color: ${this.PRIMARY_COLOR}; margin-top: 0;">New Order Received!</h1>
             <p>A new order has been placed and requires your attention.</p>
             <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0;">
               <h2 style="margin-top: 0; color: #333;">Order Details</h2>
@@ -474,7 +491,7 @@ export class EmailService {
               </div>
             </div>
             <div style="text-align: center; margin: 30px 0;">
-              <a href="${adminOrderUrl}" style="background-color: #007bff; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">View Orders Dashboard</a>
+              <a href="${adminOrderUrl}" style="background-color: ${this.SECONDARY_COLOR}; color: ${this.SECONDARY_FOREGROUND}; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">View Orders Dashboard</a>
             </div>
           </div>
         </body>
@@ -555,6 +572,7 @@ export class EmailService {
 
     const orderDateStr = new Date(orderData.orderDate).toLocaleString();
     const cancelledDateStr = new Date(orderData.cancelledAt).toLocaleString();
+    const logoUrl = this.getLogoUrl();
 
     const mailOptions = {
       from: emailFrom,
@@ -569,12 +587,14 @@ export class EmailService {
           <title>Order Cancellation Notification</title>
         </head>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <div style="background-color: #fff3cd; padding: 20px; border-radius: 5px; border-left: 4px solid #dc3545;">
-            <h1 style="color: #dc3545; margin-top: 0;">⚠️ Order Cancelled</h1>
+          <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px;">
+            ${this.getEmailHeader(logoUrl)}
+            <div style="background-color: #fff3cd; padding: 20px; border-radius: 5px; border-left: 4px solid ${this.PRIMARY_COLOR}; margin-bottom: 20px;">
+              <h1 style="color: ${this.PRIMARY_COLOR}; margin-top: 0;">⚠️ Order Cancelled</h1>
             <p style="font-size: 16px; font-weight: bold; color: #856404;">An order has been cancelled and requires your attention.</p>
           </div>
           <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ddd;">
-            <h2 style="margin-top: 0; color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">Order Information</h2>
+            <h2 style="margin-top: 0; color: ${this.PRIMARY_COLOR}; border-bottom: 2px solid ${this.PRIMARY_COLOR}; padding-bottom: 10px;">Order Information</h2>
             <table style="width: 100%; margin: 15px 0;">
               <tr>
                 <td style="padding: 8px 0; font-weight: bold; width: 40%;">Order Number:</td>
@@ -607,18 +627,18 @@ export class EmailService {
             </table>
           </div>
           <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ddd;">
-            <h2 style="margin-top: 0; color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">Customer Information</h2>
+            <h2 style="margin-top: 0; color: ${this.PRIMARY_COLOR}; border-bottom: 2px solid ${this.PRIMARY_COLOR}; padding-bottom: 10px;">Customer Information</h2>
             <p style="margin: 5px 0;"><strong>Name:</strong> ${orderData.customerName}</p>
-            <p style="margin: 5px 0;"><strong>Email:</strong> <a href="mailto:${orderData.customerEmail}" style="color: #007bff;">${orderData.customerEmail}</a></p>
+            <p style="margin: 5px 0;"><strong>Email:</strong> <a href="mailto:${orderData.customerEmail}" style="color: ${this.PRIMARY_COLOR};">${orderData.customerEmail}</a></p>
           </div>
           ${orderData.cancellationReason ? `
-          <div style="background-color: #f8d7da; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #dc3545;">
+          <div style="background-color: #f8d7da; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid ${this.PRIMARY_COLOR};">
             <h3 style="margin-top: 0; color: #721c24;">Cancellation Reason</h3>
             <p style="margin: 0; color: #721c24; font-style: italic;">"${orderData.cancellationReason}"</p>
           </div>
           ` : ''}
           <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ddd;">
-            <h2 style="margin-top: 0; color: #333; border-bottom: 2px solid #dc3545; padding-bottom: 10px;">Order Details</h2>
+            <h2 style="margin-top: 0; color: ${this.PRIMARY_COLOR}; border-bottom: 2px solid ${this.PRIMARY_COLOR}; padding-bottom: 10px;">Order Details</h2>
             <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
               <thead>
                 <tr style="background-color: #f8f9fa;">
@@ -657,7 +677,8 @@ export class EmailService {
           </div>
           ` : ''}
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${adminOrderUrl}" style="background-color: #dc3545; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">View Orders Dashboard</a>
+            <a href="${adminOrderUrl}" style="background-color: ${this.SECONDARY_COLOR}; color: ${this.SECONDARY_FOREGROUND}; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">View Orders Dashboard</a>
+          </div>
           </div>
         </body>
         </html>
@@ -702,6 +723,187 @@ export class EmailService {
     };
 
     await this.sendEmail(mailOptions);
+  }
+
+  async sendContactFormNotificationToAdmin(
+    adminEmail: string,
+    contactData: {
+      name: string;
+      email: string;
+      phone: string;
+      subject: string;
+      message: string;
+      contactId: string;
+      createdAt: Date;
+    },
+  ): Promise<void> {
+    const emailFrom = this.configService.get<string>('EMAIL_FROM') || 'noreply@ecommerce.com';
+    const apiUrl = this.configService.get<string>('API_URL') || 'http://localhost:8000';
+    const adminContactUrl = `${apiUrl}/api/v1/admin/contacts`;
+    const logoUrl = this.getLogoUrl();
+
+    const mailOptions = {
+      from: emailFrom,
+      to: adminEmail,
+      subject: `New Contact Form Submission - ${contactData.subject}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>New Contact Form Submission</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px;">
+            ${this.getEmailHeader(logoUrl)}
+            <h1 style="color: ${this.PRIMARY_COLOR}; margin-top: 0;">New Contact Form Submission</h1>
+            <p>A new contact form has been submitted and requires your attention.</p>
+            <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <h2 style="margin-top: 0; color: #333;">Contact Information</h2>
+              <table style="width: 100%; margin: 15px 0;">
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold; width: 30%;">Name:</td>
+                  <td style="padding: 8px 0;">${contactData.name}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Email:</td>
+                  <td style="padding: 8px 0;"><a href="mailto:${contactData.email}" style="color: ${this.PRIMARY_COLOR};">${contactData.email}</a></td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Phone:</td>
+                  <td style="padding: 8px 0;"><a href="tel:${contactData.phone}" style="color: ${this.PRIMARY_COLOR};">${contactData.phone}</a></td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Subject:</td>
+                  <td style="padding: 8px 0;"><strong>${contactData.subject}</strong></td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Submitted:</td>
+                  <td style="padding: 8px 0;">${new Date(contactData.createdAt).toLocaleString()}</td>
+                </tr>
+              </table>
+              <div style="margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 5px;">
+                <h3 style="margin-top: 0;">Message:</h3>
+                <p style="margin: 0; white-space: pre-wrap;">${contactData.message}</p>
+              </div>
+            </div>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${adminContactUrl}" style="background-color: ${this.SECONDARY_COLOR}; color: ${this.SECONDARY_FOREGROUND}; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">View Contact Submissions</a>
+            </div>
+            <p style="font-size: 12px; color: #666; margin-top: 30px;">
+              Contact ID: ${contactData.contactId}
+            </p>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        New Contact Form Submission
+        
+        A new contact form has been submitted and requires your attention.
+        
+        Contact Information:
+        Name: ${contactData.name}
+        Email: ${contactData.email}
+        Phone: ${contactData.phone}
+        Subject: ${contactData.subject}
+        Submitted: ${new Date(contactData.createdAt).toLocaleString()}
+        
+        Message:
+        ${contactData.message}
+        
+        Contact ID: ${contactData.contactId}
+        
+        View contact submissions: ${adminContactUrl}
+      `,
+    };
+
+    await this.sendEmail(mailOptions);
+  }
+
+  async sendContactFormAutoReply(
+    userEmail: string,
+    contactData: {
+      name: string;
+      subject: string;
+    },
+  ): Promise<void> {
+    const emailFrom = this.configService.get<string>('EMAIL_FROM') || 'noreply@ecommerce.com';
+    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
+    const logoUrl = this.getLogoUrl();
+
+    const mailOptions = {
+      from: emailFrom,
+      to: userEmail,
+      subject: 'Thank You for Contacting Us',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Thank You for Contacting Us</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px;">
+            ${this.getEmailHeader(logoUrl)}
+            <h1 style="color: ${this.PRIMARY_COLOR}; margin-top: 0;">Thank You for Contacting Us!</h1>
+            <p>Dear ${contactData.name},</p>
+            <p>We have received your message regarding "<strong>${contactData.subject}</strong>" and appreciate you taking the time to reach out to us.</p>
+            <p>Our team will review your inquiry and get back to you as soon as possible, typically within 24-48 hours during business days.</p>
+            <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <h3 style="margin-top: 0;">What happens next?</h3>
+              <ul style="margin: 0; padding-left: 20px;">
+                <li>We'll review your message carefully</li>
+                <li>Our team will prepare a detailed response</li>
+                <li>You'll receive a reply at this email address</li>
+              </ul>
+            </div>
+            <p>If you have any urgent questions, please feel free to contact us directly.</p>
+            <p style="font-size: 12px; color: #666; margin-top: 30px;">
+              This is an automated confirmation. Please do not reply to this email.
+            </p>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        Thank You for Contacting Us!
+        
+        Dear ${contactData.name},
+        
+        We have received your message regarding "${contactData.subject}" and appreciate you taking the time to reach out to us.
+        
+        Our team will review your inquiry and get back to you as soon as possible, typically within 24-48 hours during business days.
+        
+        What happens next?
+        - We'll review your message carefully
+        - Our team will prepare a detailed response
+        - You'll receive a reply at this email address
+        
+        If you have any urgent questions, please feel free to contact us directly.
+        
+        This is an automated confirmation. Please do not reply to this email.
+      `,
+    };
+
+    await this.sendEmail(mailOptions);
+  }
+
+  private getLogoUrl(): string {
+    const logoUrl = process.env.LOGO_URL;
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    return logoUrl || `${frontendUrl}/logo.png`;
+  }
+
+  private getEmailHeader(logoUrl?: string): string {
+    const logo = logoUrl || this.getLogoUrl();
+    return `
+      <div style="text-align: center; margin-bottom: 30px; padding: 20px 0; border-bottom: 2px solid ${this.PRIMARY_COLOR};">
+        <img src="${logo}" alt="Logo" style="max-width: 200px; height: auto;" />
+      </div>
+    `;
   }
 
   getSmtpStatus(): {

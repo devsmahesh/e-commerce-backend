@@ -112,6 +112,7 @@ async function bootstrap() {
     .addTag('coupons', 'Coupon management')
     .addTag('admin', 'Admin dashboard')
     .addTag('analytics', 'Analytics & reports')
+    .addTag('contact', 'Contact form')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
