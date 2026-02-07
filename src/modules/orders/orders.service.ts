@@ -10,6 +10,8 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Order, OrderDocument, OrderStatus } from './schemas/order.schema';
+import { PaymentStatus } from '../payments/enums/payment-status.enum';
+import { RazorpayService } from '../payments/razorpay.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { Cart, CartDocument } from '../cart/schemas/cart.schema';
@@ -18,7 +20,6 @@ import { Coupon, CouponDocument } from '../coupons/schemas/coupon.schema';
 import { User, UserDocument } from '../auth/schemas/user.schema';
 import { EmailService } from '../email/email.service';
 import { Role } from '../../common/decorators/roles.decorator';
-import { RazorpayService } from '../payments/razorpay.service';
 
 @Injectable()
 export class OrdersService {
@@ -129,6 +130,9 @@ export class OrdersService {
     // Generate order number
     const orderNumber = this.generateOrderNumber();
 
+    // Calculate amount in paise (source of truth for payments)
+    const amountInPaise = RazorpayService.rupeesToPaise(total);
+
     // Create order
     const order = await this.orderModel.create({
       userId,
@@ -140,9 +144,12 @@ export class OrdersService {
       tax,
       discount,
       total,
+      amount: amountInPaise, // Amount in paise for payment processing
+      currency: 'INR', // Default currency
       couponId: appliedCoupon?._id?.toString(),
       couponCode: appliedCoupon?.code,
       status: OrderStatus.Pending,
+      paymentStatus: PaymentStatus.PENDING, // Initial payment status
     });
 
     // Update product stock
@@ -709,7 +716,7 @@ export class OrdersService {
     data: {
       razorpayOrderId?: string;
       razorpayPaymentId?: string;
-      paymentStatus: 'pending' | 'paid' | 'failed' | 'refunded';
+      paymentStatus: PaymentStatus;
       paymentMethod?: string;
       paymentGateway?: string;
     },
@@ -738,11 +745,11 @@ export class OrdersService {
     }
 
     // Update order status based on payment status
-    if (data.paymentStatus === 'paid') {
+    if (data.paymentStatus === PaymentStatus.PAID) {
       order.status = OrderStatus.Paid;
-    } else if (data.paymentStatus === 'failed') {
+    } else if (data.paymentStatus === PaymentStatus.FAILED) {
       order.status = OrderStatus.Pending;
-    } else if (data.paymentStatus === 'refunded') {
+    } else if (data.paymentStatus === PaymentStatus.REFUNDED) {
       order.status = OrderStatus.Refunded;
     }
 
@@ -768,6 +775,228 @@ export class OrdersService {
       }
     }
 
+    return order;
+  }
+
+  /**
+   * Update Razorpay order ID after creating Razorpay order.
+   * Sets payment status to CREATED.
+   */
+  async updateRazorpayOrderId(
+    id: string,
+    razorpayOrderId: string,
+    amountInPaise: number,
+    currency: string = 'INR',
+  ) {
+    const order = await this.orderModel.findById(id);
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    order.razorpayOrderId = razorpayOrderId;
+    order.amount = amountInPaise; // Ensure amount is set in paise
+    order.currency = currency;
+    order.paymentStatus = PaymentStatus.CREATED;
+    order.paymentGateway = 'razorpay';
+
+    await order.save();
+    return order;
+  }
+
+  /**
+   * Update payment verification details (fast confirmation).
+   * Sets payment status to VERIFICATION_PENDING.
+   * Webhook will confirm final state.
+   */
+  async updatePaymentVerification(
+    id: string,
+    data: {
+      razorpayOrderId?: string;
+      razorpayPaymentId?: string;
+      razorpaySignature?: string;
+      paymentMethod?: string;
+      paymentGateway?: string;
+    },
+  ) {
+    const order = await this.orderModel.findById(id);
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    // Don't overwrite PAID status - webhook is source of truth
+    if (order.paymentStatus === PaymentStatus.PAID) {
+      this.logger.log(
+        `Order ${order.orderNumber} is already PAID. Not updating to VERIFICATION_PENDING.`,
+      );
+      // Still update other fields but not payment status
+    } else {
+      // Only set to VERIFICATION_PENDING if not already PAID
+      order.paymentStatus = PaymentStatus.VERIFICATION_PENDING;
+    }
+
+    if (data.razorpayOrderId) {
+      order.razorpayOrderId = data.razorpayOrderId;
+    }
+    if (data.razorpayPaymentId) {
+      order.razorpayPaymentId = data.razorpayPaymentId;
+    }
+    if (data.razorpaySignature) {
+      order.razorpaySignature = data.razorpaySignature;
+    }
+    if (data.paymentMethod) {
+      order.paymentMethod = data.paymentMethod;
+    }
+    if (data.paymentGateway) {
+      order.paymentGateway = data.paymentGateway;
+    }
+
+    await order.save();
+    return order;
+  }
+
+  /**
+   * Update payment status (used by webhooks - source of truth).
+   */
+  async updatePaymentStatus(
+    id: string,
+    data: {
+      paymentStatus: PaymentStatus;
+      razorpayPaymentId?: string;
+      paymentMethod?: string;
+      paymentGateway?: string;
+      paidAt?: Date;
+      metadata?: Record<string, any>;
+    },
+  ) {
+    const order = await this.orderModel.findById(id);
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const previousPaymentStatus = order.paymentStatus;
+    const previousOrderStatus = order.status;
+
+    // Update payment fields
+    if (data.razorpayPaymentId) {
+      order.razorpayPaymentId = data.razorpayPaymentId;
+    }
+    if (data.paymentMethod) {
+      order.paymentMethod = data.paymentMethod;
+    }
+    if (data.paymentGateway) {
+      order.paymentGateway = data.paymentGateway;
+    }
+    if (data.paidAt) {
+      order.paidAt = data.paidAt;
+    }
+    if (data.metadata) {
+      order.metadata = { ...(order.metadata || {}), ...data.metadata };
+    }
+
+    // Update payment status
+    order.paymentStatus = data.paymentStatus;
+
+    // Update order status based on payment status
+    if (data.paymentStatus === PaymentStatus.PAID) {
+      order.status = OrderStatus.Paid;
+    } else if (data.paymentStatus === PaymentStatus.FAILED) {
+      order.status = OrderStatus.Pending;
+    } else if (data.paymentStatus === PaymentStatus.REFUNDED) {
+      order.status = OrderStatus.Refunded;
+    }
+
+    await order.save();
+
+    // Populate user for email
+    await order.populate('userId', 'email firstName lastName');
+
+    // Send status update email if payment status changed to PAID
+    if (
+      previousPaymentStatus !== PaymentStatus.PAID &&
+      data.paymentStatus === PaymentStatus.PAID
+    ) {
+      try {
+        const user = order.userId as any;
+        if (user && user.email) {
+          await this.emailService.sendOrderStatusUpdateEmail(user.email, {
+            orderNumber: order.orderNumber,
+            status: order.status,
+          });
+          this.logger.log(
+            `Payment confirmation email sent to ${user.email} for order ${order.orderNumber}`,
+          );
+        }
+      } catch (error) {
+        this.logger.error(
+          `Failed to send payment confirmation email: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        // Don't fail payment update if email fails
+      }
+    }
+
+    return order;
+  }
+
+  /**
+   * Update refund status.
+   */
+  async updateRefundStatus(
+    id: string,
+    data: {
+      refundId?: string;
+      refundAmount?: number; // Amount in paise
+      refundStatus?: 'processed' | 'pending' | 'failed';
+      refundedAt?: Date;
+      refundError?: string;
+      paymentStatus?: PaymentStatus;
+    },
+  ) {
+    const order = await this.orderModel.findById(id);
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (data.refundId) {
+      order.refundId = data.refundId;
+    }
+    if (data.refundAmount !== undefined) {
+      order.refundAmount = data.refundAmount;
+    }
+    if (data.refundStatus) {
+      order.refundStatus = data.refundStatus;
+    }
+    if (data.refundedAt) {
+      order.refundedAt = data.refundedAt;
+    }
+    if (data.refundError) {
+      order.refundError = data.refundError;
+    }
+    if (data.paymentStatus) {
+      order.paymentStatus = data.paymentStatus;
+      // Update order status based on payment status
+      if (data.paymentStatus === PaymentStatus.REFUNDED) {
+        order.status = OrderStatus.Refunded;
+      } else if (data.paymentStatus === PaymentStatus.PARTIALLY_REFUNDED) {
+        // Keep order status as Paid for partial refunds
+        order.status = OrderStatus.Paid;
+      }
+    }
+
+    await order.save();
+    return order;
+  }
+
+  /**
+   * Increment payment attempts (for fraud detection).
+   */
+  async incrementPaymentAttempts(id: string) {
+    const order = await this.orderModel.findById(id);
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    order.paymentAttempts = (order.paymentAttempts || 0) + 1;
+    await order.save();
     return order;
   }
 
@@ -917,11 +1146,11 @@ export class OrdersService {
     // Note: updatedAt is automatically managed by Mongoose timestamps
 
     // Handle payment refund if paid
-    if (previousPaymentStatus === 'paid' && order.razorpayPaymentId) {
+    if (previousPaymentStatus === PaymentStatus.PAID && order.razorpayPaymentId) {
       try {
         // Initiate refund with Razorpay
         const refund = await this.razorpayService.createRefund(order.razorpayPaymentId, {
-          amount: order.total, // Amount in rupees, will be converted to paise
+          amount: order.amount || RazorpayService.rupeesToPaise(order.total), // Amount in paise
           notes: {
             orderId: order._id.toString(),
             orderNumber: order.orderNumber,
@@ -933,9 +1162,9 @@ export class OrdersService {
         // Store refund details
         order.refundId = refund.id;
         order.refundStatus = refund.status === 'processed' ? 'processed' : 'pending';
-        order.refundAmount = refund.amount ? refund.amount / 100 : order.total; // Convert paise to rupees
+        order.refundAmount = refund.amount || 0; // Amount in paise
         order.refundedAt = new Date();
-        order.paymentStatus = 'refunded';
+        order.paymentStatus = PaymentStatus.REFUNDED;
 
         this.logger.log(`Refund successful for order ${order.orderNumber}: ${refund.id}`);
       } catch (refundError: any) {
@@ -1057,12 +1286,12 @@ export class OrdersService {
     }
 
     // Check if already refunded
-    if (order.paymentStatus === 'refunded' && order.refundStatus === 'processed') {
+    if (order.paymentStatus === PaymentStatus.REFUNDED && order.refundStatus === 'processed') {
       throw new BadRequestException('Refund already processed for this order');
     }
 
     // Check if order was paid
-    if (order.paymentStatus !== 'paid') {
+    if (order.paymentStatus !== PaymentStatus.PAID) {
       throw new BadRequestException(
         'Order is not eligible for refund. Only paid orders can be refunded.',
       );
@@ -1144,10 +1373,13 @@ export class OrdersService {
     }
 
     // Process refund via Razorpay
+    // Convert refund amount to paise (Razorpay expects amount in paise)
+    const refundAmountInPaise = RazorpayService.rupeesToPaise(refundAmountInRupees);
+    
     let refund;
     try {
       refund = await this.razorpayService.createRefund(order.razorpayPaymentId, {
-        amount: refundAmountInRupees,
+        amount: refundAmountInPaise, // Amount in paise
         notes: {
           orderId: order._id.toString(),
           orderNumber: order.orderNumber,
@@ -1172,13 +1404,20 @@ export class OrdersService {
     // Update order with refund details
     order.refundId = refund.id;
     order.refundStatus = refund.status === 'processed' ? 'processed' : 'pending';
-    order.refundAmount = refund.amount ? refund.amount / 100 : refundAmountInRupees; // Convert paise to rupees
+    // Razorpay returns amount in paise, store it directly
+    order.refundAmount = typeof refund.amount === 'string' 
+      ? parseInt(refund.amount, 10) 
+      : (refund.amount || refundAmountInPaise); // Amount in paise
     order.refundedAt = new Date();
-    order.paymentStatus = 'refunded';
-    // Note: updatedAt is automatically managed by Mongoose timestamps
-
+    
+    // Determine if full or partial refund
+    const dbAmountInPaise = order.amount || RazorpayService.rupeesToPaise(order.total);
+    const isFullRefund = refundAmountInPaise >= dbAmountInPaise;
+    
+    order.paymentStatus = isFullRefund ? PaymentStatus.REFUNDED : PaymentStatus.PARTIALLY_REFUNDED;
+    
     // If full refund, update order status to Refunded
-    if (refundAmountInRupees >= order.total) {
+    if (isFullRefund) {
       order.status = OrderStatus.Refunded;
     }
 

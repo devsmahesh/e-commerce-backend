@@ -1,14 +1,23 @@
 import { Module, forwardRef } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
 import { RazorpayService } from './razorpay.service';
+import { PaymentEventService } from './payment-event.service';
 import { PaymentsController } from './payments.controller';
 import { OrdersModule } from '../orders/orders.module';
-import { CartModule } from '../cart/cart.module';
+import { PaymentEvent, PaymentEventSchema } from './schemas/payment-event.schema';
+import { Order, OrderSchema } from '../orders/schemas/order.schema';
 
 @Module({
-  imports: [forwardRef(() => OrdersModule), CartModule],
+  imports: [
+    forwardRef(() => OrdersModule),
+    MongooseModule.forFeature([
+      { name: PaymentEvent.name, schema: PaymentEventSchema },
+      { name: Order.name, schema: OrderSchema },
+    ]),
+  ],
   controllers: [PaymentsController],
-  providers: [RazorpayService],
-  exports: [RazorpayService],
+  providers: [RazorpayService, PaymentEventService],
+  exports: [RazorpayService, PaymentEventService],
 })
 export class PaymentsModule {}
 

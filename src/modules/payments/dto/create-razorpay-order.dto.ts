@@ -1,18 +1,25 @@
-import { IsNumber, IsString, IsOptional, Min, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsObject, IsMongoId, IsNotEmpty } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
+/**
+ * CreateRazorpayOrderDto
+ * 
+ * Note: Amount is NOT accepted from frontend.
+ * Amount is fetched from database (source of truth).
+ * This prevents fraud by ensuring frontend cannot manipulate payment amounts.
+ */
 export class CreateRazorpayOrderDto {
   @ApiProperty({
-    description: 'Amount in paise (e.g., 10000 for ₹100)',
-    example: 10000,
-    minimum: 100,
+    description: 'Order ID from database (MongoDB ObjectId). Amount will be fetched from this order.',
+    example: '507f1f77bcf86cd799439011',
+    required: true,
   })
-  @IsNumber()
-  @Min(100) // Minimum ₹1
-  amount: number;
+  @IsNotEmpty({ message: 'orderId is required' })
+  @IsMongoId({ message: 'orderId must be a valid MongoDB ObjectId' })
+  orderId: string;
 
   @ApiPropertyOptional({
-    description: 'Currency code (default: INR)',
+    description: 'Currency code (default: INR). If not provided, uses order currency.',
     example: 'INR',
     default: 'INR',
   })
@@ -21,7 +28,7 @@ export class CreateRazorpayOrderDto {
   currency?: string;
 
   @ApiPropertyOptional({
-    description: 'Receipt ID (e.g., order number)',
+    description: 'Receipt ID (e.g., order number). If not provided, uses order.orderNumber.',
     example: 'ORD-ABC123',
   })
   @IsString()
@@ -29,8 +36,8 @@ export class CreateRazorpayOrderDto {
   receipt?: string;
 
   @ApiPropertyOptional({
-    description: 'Optional notes/metadata',
-    example: { orderId: '507f1f77bcf86cd799439011', orderNumber: 'ORD-ABC123' },
+    description: 'Optional notes/metadata to include in Razorpay order',
+    example: { customNote: 'Special handling required' },
   })
   @IsObject()
   @IsOptional()

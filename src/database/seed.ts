@@ -26,9 +26,9 @@ async function bootstrap() {
   await couponModel.deleteMany({});
 
   // Create Admin User
-  const adminPassword = await bcrypt.hash('Admin123!', 10);
+  const adminPassword = await bcrypt.hash('Mahesh@12three', 10);
   const admin = await userModel.create({
-    email: 'admin@example.com',
+    email: 'mj726788@gmail.com',
     password: adminPassword,
     firstName: 'Admin',
     lastName: 'User',
@@ -38,18 +38,18 @@ async function bootstrap() {
   });
   console.log('✅ Admin user created:', admin.email);
 
-  // Create Test User
-  const userPassword = await bcrypt.hash('User123!', 10);
-  const user = await userModel.create({
-    email: 'user@example.com',
-    password: userPassword,
-    firstName: 'Test',
-    lastName: 'User',
-    role: Role.User,
-    isEmailVerified: true,
-    isActive: true,
-  });
-  console.log('✅ Test user created:', user.email);
+  // // Create Test User
+  // const userPassword = await bcrypt.hash('User123!', 10);
+  // const user = await userModel.create({
+  //   email: 'user@example.com',
+  //   password: userPassword,
+  //   firstName: 'Test',
+  //   lastName: 'User',
+  //   role: Role.User,
+  //   isEmailVerified: true,
+  //   isActive: true,
+  // });
+  // console.log('✅ Test user created:', user.email);
 
   // Create Categories
   const categories = await categoryModel.insertMany([
