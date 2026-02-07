@@ -7,18 +7,25 @@ import {
   Body,
   Param,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiBearerAuth,
   ApiResponse,
+  ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { UsersService } from './users.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AddAddressDto } from './dto/add-address.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { multerConfig } from '../../common/config/multer.config';
 
 @ApiTags('users')
 @Controller('users')
@@ -42,6 +49,64 @@ export class UsersController {
     @Body() updateProfileDto: UpdateProfileDto,
   ) {
     return this.usersService.updateProfile(user.id, updateProfileDto);
+  }
+
+  @Post('profile/avatar')
+  @UseInterceptors(FileInterceptor('avatar', multerConfig))
+  @ApiOperation({ summary: 'Upload user avatar' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        avatar: {
+          type: 'string',
+          format: 'binary',
+          description: 'Avatar image file (JPG, PNG, GIF, WebP, max 5MB)',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Avatar uploaded successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Avatar uploaded successfully' },
+        data: {
+          type: 'object',
+          properties: {
+            _id: { type: 'string', example: 'user_id_here' },
+            id: { type: 'string', example: 'user_id_here' },
+            email: { type: 'string', example: 'user@example.com' },
+            firstName: { type: 'string', example: 'John' },
+            lastName: { type: 'string', example: 'Doe' },
+            phone: { type: 'string', example: '+1234567890' },
+            role: { type: 'string', example: 'user' },
+            avatar: { type: 'string', example: 'https://res.cloudinary.com/.../avatars/avatar.jpg' },
+            isActive: { type: 'boolean', example: true },
+            createdAt: { type: 'string', example: '2024-01-01T00:00:00.000Z' },
+            updatedAt: { type: 'string', example: '2024-01-15T10:30:00.000Z' },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Invalid file type or size, or no file provided' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'User not found' })
+  @ApiResponse({ status: 500, description: 'Failed to upload avatar' })
+  async uploadAvatar(
+    @CurrentUser() user: any,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('No avatar file provided.');
+    }
+
+    return this.usersService.uploadAvatar(user.id, file);
   }
 
   @Get('addresses')

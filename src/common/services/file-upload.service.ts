@@ -41,6 +41,14 @@ export class FileUploadService {
     return this.uploadToCloudinary(file, folder);
   }
 
+  async uploadAvatar(file: Express.Multer.File): Promise<UploadResult> {
+    // Validate file
+    this.validateImageFile(file);
+
+    // Upload to Cloudinary with avatar-specific transformations
+    return this.uploadAvatarToCloudinary(file);
+  }
+
   private validateImageFile(file: Express.Multer.File): void {
     if (!file) {
       throw new BadRequestException('No image file provided.');
@@ -114,6 +122,58 @@ export class FileUploadService {
     }
   }
 
+
+  private async uploadAvatarToCloudinary(
+    file: Express.Multer.File,
+  ): Promise<UploadResult> {
+    try {
+      console.log(`☁️  Uploading avatar to Cloudinary: ${file.originalname}`);
+      
+      return new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            folder: 'avatars',
+            resource_type: 'image',
+            transformation: [
+              { width: 400, height: 400, crop: 'fill', gravity: 'face' }, // Square crop, focus on face
+              { quality: 'auto' },
+            ],
+            allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp'],
+          },
+          (error, result) => {
+            if (error) {
+              console.error('❌ Cloudinary avatar upload error:', error);
+              reject(
+                new InternalServerErrorException(
+                  `Failed to upload avatar to Cloudinary: ${error.message || 'Unknown error'}`,
+                ),
+              );
+            } else if (!result) {
+              console.error('❌ Cloudinary avatar upload returned no result');
+              reject(
+                new InternalServerErrorException(
+                  'Failed to upload avatar. No result returned from Cloudinary.',
+                ),
+              );
+            } else {
+              console.log(`✅ Avatar uploaded to Cloudinary: ${result.secure_url}`);
+              resolve({
+                url: result.secure_url,
+                publicId: result.public_id,
+              });
+            }
+          },
+        );
+
+        uploadStream.end(file.buffer);
+      });
+    } catch (error) {
+      console.error('❌ Error uploading avatar to Cloudinary:', error);
+      throw new InternalServerErrorException(
+        `Failed to upload avatar: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+    }
+  }
 
   async deleteImage(url: string, publicId?: string, folder?: string): Promise<void> {
     // Always use Cloudinary for deletion

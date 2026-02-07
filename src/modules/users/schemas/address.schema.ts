@@ -3,7 +3,7 @@ import { Document, Types } from 'mongoose';
 
 export type AddressDocument = Address & Document;
 
-@Schema({ _id: false })
+@Schema({ _id: true, timestamps: false })
 export class Address {
   @Prop({ required: true })
   street: string;

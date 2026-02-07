@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { Role } from '../../../common/decorators/roles.decorator';
+import { AddressSchema } from '../../users/schemas/address.schema';
 
 export type UserDocument = User & Document;
 
@@ -48,11 +49,14 @@ export class User {
   @Prop({ type: [{ type: String }] })
   refreshTokens: string[];
 
-  @Prop({ type: [{ type: Object }] })
+  @Prop({ type: [AddressSchema] })
   addresses?: any[];
 
   @Prop({ type: [{ type: Types.ObjectId, ref: 'Product' }] })
   wishlist?: Types.ObjectId[];
+
+  @Prop()
+  avatar?: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
