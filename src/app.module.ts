@@ -20,6 +20,7 @@ import { ReviewsModule } from './modules/reviews/reviews.module';
 import { CouponsModule } from './modules/coupons/coupons.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
+import { BannersModule } from './modules/banners/banners.module';
 import { RedisModule } from './config/redis/redis.module';
 import { EmailModule } from './modules/email/email.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -97,6 +98,7 @@ import { RawBodyMiddleware } from './common/middleware/raw-body.middleware';
     CouponsModule,
     AdminModule,
     AnalyticsModule,
+    BannersModule,
   ],
   controllers: [AppController],
   providers: [

@@ -85,6 +85,9 @@ export class Order {
   @Prop({ type: String, ref: 'Coupon' })
   couponId?: string;
 
+  @Prop()
+  couponCode?: string;
+
   @Prop({ required: true, min: 0 })
   total: number;
 

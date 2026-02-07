@@ -1,10 +1,13 @@
-import { Controller, Get, Put, Delete, Post, Param, Query, UseGuards, Body, Patch, BadRequestException } from '@nestjs/common';
+import { Controller, Get, Put, Delete, Post, Param, Query, UseGuards, Body, Patch, BadRequestException, UseInterceptors, UploadedFile } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiBearerAuth,
   ApiResponse,
+  ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AdminService } from './admin.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateBannerDto } from './dto/create-banner.dto';
@@ -14,6 +17,8 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { Role } from '../../common/decorators/roles.decorator';
 import { ReviewStatus } from '../reviews/schemas/review.schema';
+import { FileUploadService } from '../../common/services/file-upload.service';
+import { multerConfig } from '../../common/config/multer.config';
 
 @ApiTags('admin')
 @Controller('admin')
@@ -21,7 +26,10 @@ import { ReviewStatus } from '../reviews/schemas/review.schema';
 @Roles(Role.Admin)
 @ApiBearerAuth('JWT-auth')
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly fileUploadService: FileUploadService,
+  ) {}
 
   @Get('dashboard')
   @ApiOperation({ summary: 'Get dashboard statistics' })
@@ -100,6 +108,62 @@ export class AdminController {
   }
 
   // Banner Management
+  @Post('banners/upload-image')
+  @ApiOperation({ summary: 'Upload banner image (Admin only)' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        image: {
+          type: 'string',
+          format: 'binary',
+          description: 'Image file (JPG, PNG, GIF, WebP, max 5MB)',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Image uploaded successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: true },
+        message: { type: 'string', example: 'Image uploaded successfully' },
+        data: {
+          type: 'object',
+          properties: {
+            url: {
+              type: 'string',
+              example: 'https://res.cloudinary.com/your-cloud/banners/image.jpg',
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Invalid file type or size, or no file provided' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - Admin access required' })
+  @ApiResponse({ status: 500, description: 'Failed to upload image' })
+  @UseInterceptors(FileInterceptor('image', multerConfig))
+  async uploadBannerImage(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('No image file provided.');
+    }
+
+    const result = await this.fileUploadService.uploadImage(file, 'banners');
+
+    return {
+      success: true,
+      message: 'Image uploaded successfully',
+      data: {
+        url: result.url,
+      },
+    };
+  }
+
   @Get('banners')
   @ApiOperation({ summary: 'Get all banners' })
   @ApiResponse({ status: 200, description: 'Banners retrieved successfully' })

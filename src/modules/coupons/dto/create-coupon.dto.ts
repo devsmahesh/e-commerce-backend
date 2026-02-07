@@ -53,10 +53,15 @@ export class CreateCouponDto {
   @Min(0)
   usageLimit?: number;
 
-  @ApiPropertyOptional({ default: true })
+  @ApiPropertyOptional({ default: true, description: 'Coupon active status' })
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({ default: true, description: 'Alias for isActive - coupon active status' })
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean;
 
   @ApiPropertyOptional({ type: [String] })
   @IsOptional()

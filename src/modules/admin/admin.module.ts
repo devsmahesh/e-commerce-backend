@@ -8,6 +8,7 @@ import { Order, OrderSchema } from '../orders/schemas/order.schema';
 import { Coupon, CouponSchema } from '../coupons/schemas/coupon.schema';
 import { Review, ReviewSchema } from '../reviews/schemas/review.schema';
 import { Banner, BannerSchema } from './schemas/banner.schema';
+import { FileUploadService } from '../../common/services/file-upload.service';
 
 @Module({
   imports: [
@@ -21,7 +22,7 @@ import { Banner, BannerSchema } from './schemas/banner.schema';
     ]),
   ],
   controllers: [AdminController],
-  providers: [AdminService],
+  providers: [AdminService, FileUploadService],
 })
 export class AdminModule {}
 

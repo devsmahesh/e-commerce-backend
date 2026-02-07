@@ -30,10 +30,12 @@ export class CouponsController {
 
   @Public()
   @Get()
-  @ApiOperation({ summary: 'Get all active coupons' })
+  @ApiOperation({ summary: 'Get all coupons (active and inactive)' })
   @ApiResponse({ status: 200, description: 'Coupons retrieved successfully' })
   async findAll(@Query('includeInactive') includeInactive?: string) {
-    return this.couponsService.findAll(includeInactive === 'true');
+    // Default to true (include inactive), only exclude if explicitly set to 'false'
+    const shouldIncludeInactive = includeInactive === undefined || includeInactive === 'true';
+    return this.couponsService.findAll(shouldIncludeInactive);
   }
 
   @Public()

@@ -15,6 +15,34 @@ export class CouponsService {
     @InjectModel(Coupon.name) private couponModel: Model<CouponDocument>,
   ) {}
 
+  /**
+   * Helper method to add isExpired field to coupon response
+   * If coupon is expired, automatically set isActive to false
+   */
+  private addIsExpiredToCoupon(coupon: any): any {
+    const couponObj = coupon.toObject ? coupon.toObject() : coupon;
+    const now = new Date();
+    const isExpired = couponObj.expiresAt 
+      ? new Date(couponObj.expiresAt) < now 
+      : false;
+    
+    // If coupon is expired, set isActive to false
+    const isActive = isExpired ? false : couponObj.isActive;
+    
+    return {
+      ...couponObj,
+      isExpired,
+      isActive, // Override isActive if expired
+    };
+  }
+
+  /**
+   * Helper method to add isExpired field to array of coupons
+   */
+  private addIsExpiredToCoupons(coupons: any[]): any[] {
+    return coupons.map(coupon => this.addIsExpiredToCoupon(coupon));
+  }
+
   async create(createCouponDto: CreateCouponDto) {
     const code = createCouponDto.code.toUpperCase();
 
@@ -24,22 +52,35 @@ export class CouponsService {
       throw new ConflictException('Coupon code already exists');
     }
 
+    // Handle active/isActive field - support both 'active' and 'isActive'
+    const isActive = (createCouponDto as any).active !== undefined 
+      ? (createCouponDto as any).active 
+      : (createCouponDto.isActive !== undefined ? createCouponDto.isActive : true);
+
+    // Remove 'active' from DTO to avoid storing it in DB
+    const { active, ...couponData } = createCouponDto as any;
+
+    // Default isActive to true if not provided
     const coupon = await this.couponModel.create({
-      ...createCouponDto,
+      ...couponData,
       code,
+      isActive,
     });
 
-    return coupon;
+    return this.addIsExpiredToCoupon(coupon);
   }
 
-  async findAll(includeInactive = false) {
+  async findAll(includeInactive = true) {
     const query: any = {};
+    // By default, return all coupons (both active and inactive)
+    // Only filter if explicitly requested to exclude inactive
     if (!includeInactive) {
       query.isActive = true;
       query.expiresAt = { $gt: new Date() };
     }
 
-    return this.couponModel.find(query).sort({ createdAt: -1 }).exec();
+    const coupons = await this.couponModel.find(query).sort({ createdAt: -1 }).exec();
+    return this.addIsExpiredToCoupons(coupons);
   }
 
   async findOne(id: string) {
@@ -47,21 +88,37 @@ export class CouponsService {
     if (!coupon) {
       throw new NotFoundException('Coupon not found');
     }
-    return coupon;
+    return this.addIsExpiredToCoupon(coupon);
   }
 
   async findByCode(code: string) {
+    // First, find coupon without filtering by isActive (for security check)
     const coupon = await this.couponModel.findOne({
       code: code.toUpperCase(),
-      isActive: true,
-      expiresAt: { $gt: new Date() },
     });
 
     if (!coupon) {
-      throw new NotFoundException('Invalid or expired coupon');
+      throw new NotFoundException('Coupon not found or invalid');
     }
 
-    return coupon;
+    // CRITICAL: Check active status FIRST (before other validations)
+    // Return generic error message for security (don't reveal coupon exists if inactive)
+    if (!coupon.isActive) {
+      throw new NotFoundException('Coupon not found or invalid');
+    }
+
+    // Check expiration
+    const now = new Date();
+    if (coupon.expiresAt && now > coupon.expiresAt) {
+      throw new BadRequestException('Coupon has expired');
+    }
+
+    // Check usage limit
+    if (coupon.usageLimit > 0 && coupon.usageCount >= coupon.usageLimit) {
+      throw new BadRequestException('Coupon usage limit reached');
+    }
+
+    return this.addIsExpiredToCoupon(coupon);
   }
 
   async validateCoupon(code: string, subtotal: number, categoryIds?: string[]) {
@@ -142,13 +199,20 @@ export class CouponsService {
       }
     }
 
+    // Handle active/isActive field - support both 'active' and 'isActive'
+    const updatePayload: any = { ...updateData };
+    if ((updateData as any).active !== undefined) {
+      updatePayload.isActive = (updateData as any).active;
+      delete updatePayload.active; // Remove 'active' to avoid storing it
+    }
+
     const updatedCoupon = await this.couponModel.findByIdAndUpdate(
       id,
-      { $set: updateData },
+      { $set: updatePayload },
       { new: true, runValidators: true },
     );
 
-    return updatedCoupon;
+    return this.addIsExpiredToCoupon(updatedCoupon);
   }
 
   async remove(id: string) {

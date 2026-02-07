@@ -78,27 +78,53 @@ export class OrdersService {
     let appliedCoupon = null;
     if (createOrderDto.couponId) {
       const coupon = await this.couponModel.findById(createOrderDto.couponId);
-      if (coupon && coupon.isActive && new Date() <= coupon.expiresAt) {
-        // Check usage limit
-        if (coupon.usageLimit === 0 || coupon.usageCount < coupon.usageLimit) {
-          if (coupon.type === 'percentage') {
-            discount = (subtotal * coupon.value) / 100;
-            if (coupon.maxDiscount) {
-              discount = Math.min(discount, coupon.maxDiscount);
-            }
-          } else {
-            discount = coupon.value;
-          }
-          discount = Math.min(discount, subtotal);
-          appliedCoupon = coupon;
-        }
+      
+      if (!coupon) {
+        throw new BadRequestException('Coupon validation failed: Coupon not found');
       }
+
+      if (!coupon.isActive) {
+        throw new BadRequestException('Coupon validation failed: Coupon is not active');
+      }
+
+      // Check expiration
+      const now = new Date();
+      if (coupon.expiresAt && now > coupon.expiresAt) {
+        throw new BadRequestException('Coupon validation failed: Coupon has expired');
+      }
+
+      // Check usage limit
+      if (coupon.usageLimit > 0 && coupon.usageCount >= coupon.usageLimit) {
+        throw new BadRequestException('Coupon validation failed: Coupon usage limit reached');
+      }
+
+      // Check minimum purchase
+      if (coupon.minPurchase && subtotal < coupon.minPurchase) {
+        throw new BadRequestException(
+          `Coupon validation failed: Minimum purchase amount not met. Required: ${coupon.minPurchase}, Current: ${subtotal}`,
+        );
+      }
+
+      // Calculate discount
+      if (coupon.type === 'percentage') {
+        discount = (subtotal * coupon.value) / 100;
+        if (coupon.maxDiscount) {
+          discount = Math.min(discount, coupon.maxDiscount);
+        }
+      } else {
+        discount = coupon.value;
+      }
+      
+      // Ensure discount doesn't exceed subtotal
+      discount = Math.min(discount, subtotal);
+      appliedCoupon = coupon;
     }
 
     // Calculate totals
     const shippingCost = createOrderDto.shippingCost || 0;
-    const tax = subtotal * 0.1; // 10% tax - adjust as needed
-    const total = subtotal + shippingCost + tax - discount;
+    const discountedSubtotal = subtotal - discount;
+    const tax = discountedSubtotal * 0.1; // 10% tax - adjust as needed
+    const total = discountedSubtotal + tax + shippingCost;
 
     // Generate order number
     const orderNumber = this.generateOrderNumber();
@@ -114,7 +140,8 @@ export class OrdersService {
       tax,
       discount,
       total,
-      couponId: createOrderDto.couponId,
+      couponId: appliedCoupon?._id?.toString(),
+      couponCode: appliedCoupon?.code,
       status: OrderStatus.Pending,
     });
 
@@ -125,7 +152,7 @@ export class OrdersService {
       });
     }
 
-    // Increment coupon usage if applied
+    // Increment coupon usage if applied (atomic operation)
     if (appliedCoupon) {
       await this.couponModel.findByIdAndUpdate(appliedCoupon._id, {
         $inc: { usageCount: 1 },
@@ -230,6 +257,20 @@ export class OrdersService {
       // Don't fail order creation if email fails
     }
 
+    // Format coupon information if present
+    let coupon = undefined;
+    if (appliedCoupon) {
+      coupon = {
+        id: appliedCoupon._id.toString(),
+        code: appliedCoupon.code,
+      };
+    } else if (order.couponCode) {
+      coupon = {
+        id: order.couponId || undefined,
+        code: order.couponCode,
+      };
+    }
+
     return {
       id: order._id.toString(), // Convert _id to id for frontend
       orderNumber: order.orderNumber, // Required: Human-readable order number
@@ -240,6 +281,7 @@ export class OrdersService {
       shipping: order.shippingCost || 0, // Map shippingCost to shipping
       discount: order.discount || 0,
       total: order.total,
+      coupon: coupon,
       status: order.status,
       paymentStatus: order.paymentStatus || 'pending', // Ensure paymentStatus is included
       createdAt: orderDoc.createdAt || new Date(),
@@ -792,6 +834,24 @@ export class OrdersService {
       }
     }
 
+    // Format coupon information if present
+    let coupon = undefined;
+    if (order.couponId) {
+      if (typeof order.couponId === 'object' && order.couponId._id) {
+        // Populated coupon object
+        coupon = {
+          id: order.couponId._id.toString(),
+          code: order.couponId.code || order.couponCode,
+        };
+      } else if (order.couponCode) {
+        // Just coupon code stored directly
+        coupon = {
+          id: order.couponId?.toString() || undefined,
+          code: order.couponCode,
+        };
+      }
+    }
+
     return {
       id: order._id?.toString() || order.id,
       orderNumber: order.orderNumber,
@@ -803,6 +863,7 @@ export class OrdersService {
       shipping: order.shippingCost || 0,
       discount: order.discount || 0,
       total: order.total,
+      coupon: coupon,
       shippingAddress: order.shippingAddress,
       paymentStatus: order.paymentStatus || 'pending',
       paymentMethod: order.paymentMethod || undefined,
