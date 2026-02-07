@@ -37,17 +37,43 @@ export class AdminController {
   ) {}
 
   @Get('dashboard')
-  @ApiOperation({ summary: 'Get dashboard statistics' })
-  @ApiResponse({ status: 200, description: 'Dashboard stats retrieved' })
-  async getDashboardStats() {
-    return this.adminService.getDashboardStats();
+  @ApiOperation({ summary: 'Get comprehensive dashboard statistics' })
+  @ApiResponse({ status: 200, description: 'Dashboard stats retrieved successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid period parameter' })
+  async getDashboardStats(@Query('period') period?: string) {
+    return this.adminService.getDashboardStats(period || '30d');
   }
 
   @Get('dashboard/revenue')
-  @ApiOperation({ summary: 'Get revenue data for charts' })
-  @ApiResponse({ status: 200, description: 'Revenue data retrieved' })
-  async getDashboardRevenue(@Query('period') period?: string) {
-    return this.adminService.getDashboardRevenue(period);
+  @ApiOperation({ summary: 'Get revenue and orders data grouped by date for charts' })
+  @ApiResponse({ status: 200, description: 'Revenue data retrieved successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid period parameter' })
+  async getDashboardRevenue(
+    @Query('period') period?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+  ) {
+    return this.adminService.getDashboardRevenue(period || '30d', startDate, endDate);
+  }
+
+  @Get('dashboard/recent-orders')
+  @ApiOperation({ summary: 'Get the most recent orders for quick overview' })
+  @ApiResponse({ status: 200, description: 'Recent orders retrieved successfully' })
+  async getRecentOrders(@Query('limit') limit?: string) {
+    const limitNum = limit ? parseInt(limit, 10) : 5;
+    return this.adminService.getRecentOrders(limitNum);
+  }
+
+  @Get('dashboard/top-products')
+  @ApiOperation({ summary: 'Get top selling products by revenue or quantity sold' })
+  @ApiResponse({ status: 200, description: 'Top products retrieved successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid period parameter' })
+  async getTopProducts(
+    @Query('limit') limit?: string,
+    @Query('period') period?: string,
+  ) {
+    const limitNum = limit ? parseInt(limit, 10) : 5;
+    return this.adminService.getTopProducts(limitNum, period || '30d');
   }
 
   @Get('users')

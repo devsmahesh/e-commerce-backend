@@ -8,6 +8,7 @@ import { Order, OrderSchema } from '../orders/schemas/order.schema';
 import { Coupon, CouponSchema } from '../coupons/schemas/coupon.schema';
 import { Review, ReviewSchema } from '../reviews/schemas/review.schema';
 import { Banner, BannerSchema } from './schemas/banner.schema';
+import { Category, CategorySchema } from '../categories/schemas/category.schema';
 import { ContactModule } from '../contact/contact.module';
 import { FileUploadService } from '../../common/services/file-upload.service';
 
@@ -20,6 +21,7 @@ import { FileUploadService } from '../../common/services/file-upload.service';
       { name: Coupon.name, schema: CouponSchema },
       { name: Review.name, schema: ReviewSchema },
       { name: Banner.name, schema: BannerSchema },
+      { name: Category.name, schema: CategorySchema },
     ]),
     ContactModule,
   ],
