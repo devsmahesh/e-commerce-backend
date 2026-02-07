@@ -22,6 +22,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { BannersModule } from './modules/banners/banners.module';
 import { ContactModule } from './modules/contact/contact.module';
+import { FlashDealsModule } from './modules/flash-deals/flash-deals.module';
 import { RedisModule } from './config/redis/redis.module';
 import { EmailModule } from './modules/email/email.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -103,6 +104,7 @@ import { RawBodyMiddleware } from './common/middleware/raw-body.middleware';
     AnalyticsModule,
     BannersModule,
     ContactModule,
+    FlashDealsModule,
   ],
   controllers: [AppController],
   providers: [
