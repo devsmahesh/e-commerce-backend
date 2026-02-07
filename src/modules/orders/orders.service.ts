@@ -1124,11 +1124,17 @@ export class OrdersService {
     }
 
     // Check if order can be cancelled
-    const allowedStatuses = isAdmin ? [OrderStatus.Pending, OrderStatus.Processing] : [OrderStatus.Pending];
+    // Allow cancellation of: Pending, Paid, and Processing orders
+    // Shipped and Delivered orders cannot be cancelled (already in transit/delivered)
+    const allowedStatuses = [
+      OrderStatus.Pending,
+      OrderStatus.Paid,
+      OrderStatus.Processing,
+    ];
+    
     if (!allowedStatuses.includes(order.status)) {
-      const statusText = allowedStatuses.length === 1 ? allowedStatuses[0] : `${allowedStatuses.join(' or ')}`;
       throw new BadRequestException(
-        `Order cannot be cancelled. Only ${statusText} orders can be cancelled.`,
+        `Order cannot be cancelled. Only pending, paid, or processing orders can be cancelled. Orders that are shipped or delivered cannot be cancelled.`,
       );
     }
 
@@ -1202,6 +1208,24 @@ export class OrdersService {
     await order.populate('items.productId', 'name slug images');
     await order.populate('userId', 'email firstName lastName');
     await order.populate('couponId', 'code value type');
+
+    // Send refund notification email if refund was successful
+    if (order.paymentStatus === PaymentStatus.REFUNDED && order.refundId) {
+      try {
+        const user = order.userId as any;
+        if (user && user.email) {
+          await this.emailService.sendOrderStatusUpdateEmail(user.email, {
+            orderNumber: order.orderNumber,
+            status: OrderStatus.Refunded,
+          });
+          this.logger.log(`Refund notification email sent to ${user.email} for order ${order.orderNumber}`);
+        }
+      } catch (error) {
+        this.logger.error(
+          `Failed to send refund notification email: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
 
     // Send cancellation email to user
     try {
