@@ -19,6 +19,12 @@ export class OrderItem {
   @Prop({ type: Types.ObjectId, ref: 'Product', required: true })
   productId: Types.ObjectId;
 
+  @Prop()
+  variantId?: string;
+
+  @Prop()
+  variantName?: string;
+
   @Prop({ required: true })
   name: string;
 

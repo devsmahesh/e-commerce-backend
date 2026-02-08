@@ -32,7 +32,7 @@ export class CartService {
   }
 
   async addToCart(userId: string, addToCartDto: AddToCartDto) {
-    const { productId, quantity } = addToCartDto;
+    const { productId, variantId, quantity } = addToCartDto;
 
     // Verify product exists and is available
     const product = await this.productModel.findById(productId);
@@ -44,7 +44,46 @@ export class CartService {
       throw new BadRequestException('Product is not available');
     }
 
-    if (product.stock < quantity) {
+    // Handle variant if provided
+    let selectedVariant: any = null;
+    let price = product.price;
+    let stock = product.stock;
+    let variantName: string | undefined = undefined;
+
+    if (variantId) {
+      if (!product.variants || product.variants.length === 0) {
+        throw new BadRequestException('Product does not have variants');
+      }
+
+      // Find the variant - Mongoose subdocuments have _id property
+      selectedVariant = product.variants.find(
+        (v: any) => {
+          const vId = (v as any)._id?.toString() || (v as any).id?.toString();
+          return vId === variantId;
+        },
+      );
+
+      if (!selectedVariant) {
+        throw new NotFoundException('Variant not found');
+      }
+
+      price = selectedVariant.price;
+      stock = selectedVariant.stock;
+      variantName = selectedVariant.name;
+    } else if (product.variants && product.variants.length > 0) {
+      // If product has variants but no variant selected, use default variant
+      const defaultVariant = product.variants.find((v: any) => v.isDefault === true);
+      if (defaultVariant) {
+        selectedVariant = defaultVariant;
+        price = defaultVariant.price;
+        stock = defaultVariant.stock;
+        variantName = defaultVariant.name;
+        // Note: variantId will remain undefined, which is fine for default variant
+      }
+    }
+
+    // Check stock
+    if (stock < quantity) {
       throw new BadRequestException('Insufficient stock');
     }
 
@@ -54,25 +93,44 @@ export class CartService {
       cart = await this.cartModel.create({ userId, items: [], total: 0 });
     }
 
-    // Check if product already in cart
+    // Check if same product with same variant already in cart
     const existingItemIndex = cart.items.findIndex(
-      (item) => item.productId.toString() === productId,
+      (item) => 
+        item.productId.toString() === productId &&
+        (item.variantId === variantId || (!item.variantId && !variantId)),
     );
 
     if (existingItemIndex > -1) {
       // Replace quantity (don't add to existing)
-      if (product.stock < quantity) {
+      if (stock < quantity) {
         throw new BadRequestException('Insufficient stock');
       }
       cart.items[existingItemIndex].quantity = quantity;
-      cart.items[existingItemIndex].price = product.price;
+      cart.items[existingItemIndex].price = price;
+      if (variantId) {
+        cart.items[existingItemIndex].variantId = variantId;
+        cart.items[existingItemIndex].variantName = variantName;
+      }
     } else {
       // Add new item
-      cart.items.push({
+      const newItem: any = {
         productId: new Types.ObjectId(productId),
         quantity,
-        price: product.price,
-      });
+        price,
+      };
+      
+      if (variantId) {
+        newItem.variantId = variantId;
+        newItem.variantName = variantName;
+      } else if (selectedVariant) {
+        // Default variant selected but no variantId provided
+        // Mongoose subdocuments have _id property
+        const variantDoc = selectedVariant as any;
+        newItem.variantId = variantDoc._id?.toString();
+        newItem.variantName = variantName;
+      }
+
+      cart.items.push(newItem);
     }
 
     await this.calculateTotal(cart);
@@ -95,18 +153,44 @@ export class CartService {
       throw new NotFoundException('Item not found in cart');
     }
 
+    const cartItem = cart.items[itemIndex];
+
     // Verify stock
     const product = await this.productModel.findById(productId);
     if (!product) {
       throw new NotFoundException('Product not found');
     }
 
-    if (product.stock < updateDto.quantity) {
+    let stock = product.stock;
+    let price = product.price;
+
+    // If cart item has variant, check variant stock
+    if (cartItem.variantId) {
+      if (!product.variants || product.variants.length === 0) {
+        throw new BadRequestException('Product variant not found');
+      }
+
+      const variant = product.variants.find(
+        (v: any) => {
+          const vId = (v as any)._id?.toString() || (v as any).id?.toString();
+          return vId === cartItem.variantId;
+        },
+      );
+
+      if (!variant) {
+        throw new NotFoundException('Variant not found');
+      }
+
+      stock = variant.stock;
+      price = variant.price;
+    }
+
+    if (stock < updateDto.quantity) {
       throw new BadRequestException('Insufficient stock');
     }
 
     cart.items[itemIndex].quantity = updateDto.quantity;
-    cart.items[itemIndex].price = product.price;
+    cart.items[itemIndex].price = price;
 
     await this.calculateTotal(cart);
     await cart.save();
@@ -174,7 +258,7 @@ export class CartService {
       // Use productId as item id since cart items are embedded documents
       const itemId = item.productId?._id?.toString() || item.productId?.toString() || `item-${index}`;
       
-      return {
+      const formattedItem: any = {
         id: itemId,
         product: product && typeof product === 'object' && product._id
           ? {
@@ -187,6 +271,14 @@ export class CartService {
         quantity: item.quantity,
         price: item.price,
       };
+
+      // Include variant information if present
+      if (item.variantId) {
+        formattedItem.variantId = item.variantId;
+        formattedItem.variantName = item.variantName;
+      }
+
+      return formattedItem;
     });
 
     return {

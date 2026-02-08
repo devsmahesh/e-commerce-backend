@@ -30,6 +30,16 @@ export class ProductsService {
   ) {}
 
   async create(createProductDto: CreateProductDto) {
+    // Validate and process variants if provided
+    if (createProductDto.variants && createProductDto.variants.length > 0) {
+      this.validateVariants(createProductDto.variants);
+    }
+
+    // Validate and process details if provided
+    if (createProductDto.details) {
+      this.validateDetails(createProductDto.details);
+    }
+
     // Validate compareAtPrice >= price if both are provided
     if (
       createProductDto.compareAtPrice !== undefined &&
@@ -50,10 +60,59 @@ export class ProductsService {
       throw new ConflictException('Product with this name already exists');
     }
 
-    const product = await this.productModel.create({
+    // Prepare product data
+    const productData: any = {
       ...createProductDto,
       slug,
-    });
+    };
+
+    // Process variants: remove temporary IDs and ensure proper structure
+    if (createProductDto.variants && createProductDto.variants.length > 0) {
+      productData.variants = createProductDto.variants.map((variant) => ({
+        name: variant.name,
+        price: variant.price,
+        compareAtPrice: variant.compareAtPrice,
+        stock: variant.stock,
+        sku: variant.sku,
+        tags: variant.tags || [],
+        isDefault: variant.isDefault || false,
+      }));
+    }
+
+    // Process details: only store enabled sections with content
+    if (createProductDto.details) {
+      const processedDetails: any = {};
+      
+      if (createProductDto.details.whyChooseUs?.enabled && createProductDto.details.whyChooseUs?.content) {
+        processedDetails.whyChooseUs = {
+          title: createProductDto.details.whyChooseUs.title || null,
+          content: createProductDto.details.whyChooseUs.content,
+          enabled: true,
+        };
+      }
+      
+      if (createProductDto.details.keyBenefits?.enabled && createProductDto.details.keyBenefits?.content) {
+        processedDetails.keyBenefits = {
+          title: createProductDto.details.keyBenefits.title || null,
+          content: createProductDto.details.keyBenefits.content,
+          enabled: true,
+        };
+      }
+      
+      if (createProductDto.details.refundPolicy?.enabled && createProductDto.details.refundPolicy?.content) {
+        processedDetails.refundPolicy = {
+          title: createProductDto.details.refundPolicy.title || null,
+          content: createProductDto.details.refundPolicy.content,
+          enabled: true,
+        };
+      }
+
+      if (Object.keys(processedDetails).length > 0) {
+        productData.details = processedDetails;
+      }
+    }
+
+    const product = await this.productModel.create(productData);
 
     // Invalidate cache
     await this.invalidateProductCache();
@@ -506,6 +565,18 @@ export class ProductsService {
       throw new NotFoundException('Product not found');
     }
 
+    // Validate and process variants if provided
+    if (updateProductDto.variants !== undefined) {
+      if (Array.isArray(updateProductDto.variants) && updateProductDto.variants.length > 0) {
+        this.validateVariants(updateProductDto.variants);
+      }
+    }
+
+    // Validate and process details if provided
+    if (updateProductDto.details !== undefined) {
+      this.validateDetails(updateProductDto.details);
+    }
+
     // Validate compareAtPrice >= price if both are provided
     const finalPrice =
       updateProductDto.price !== undefined
@@ -535,9 +606,65 @@ export class ProductsService {
       (updateProductDto as any).slug = newSlug;
     }
 
+    // Prepare update data
+    const updateData: any = { ...updateProductDto };
+
+    // Process variants: if provided, replace all existing variants
+    if (updateProductDto.variants !== undefined) {
+      if (Array.isArray(updateProductDto.variants) && updateProductDto.variants.length > 0) {
+        // Process and replace variants
+        updateData.variants = updateProductDto.variants.map((variant) => ({
+          name: variant.name,
+          price: variant.price,
+          compareAtPrice: variant.compareAtPrice,
+          stock: variant.stock,
+          sku: variant.sku,
+          tags: variant.tags || [],
+          isDefault: variant.isDefault || false,
+        }));
+      } else {
+        // Empty array means remove all variants
+        updateData.variants = [];
+      }
+    }
+    // If variants is not provided, keep existing variants (don't include in updateData)
+
+    // Process details: if provided, replace all existing details
+    if (updateProductDto.details !== undefined) {
+      const processedDetails: any = {};
+      
+      if (updateProductDto.details.whyChooseUs?.enabled && updateProductDto.details.whyChooseUs?.content) {
+        processedDetails.whyChooseUs = {
+          title: updateProductDto.details.whyChooseUs.title || null,
+          content: updateProductDto.details.whyChooseUs.content,
+          enabled: true,
+        };
+      }
+      
+      if (updateProductDto.details.keyBenefits?.enabled && updateProductDto.details.keyBenefits?.content) {
+        processedDetails.keyBenefits = {
+          title: updateProductDto.details.keyBenefits.title || null,
+          content: updateProductDto.details.keyBenefits.content,
+          enabled: true,
+        };
+      }
+      
+      if (updateProductDto.details.refundPolicy?.enabled && updateProductDto.details.refundPolicy?.content) {
+        processedDetails.refundPolicy = {
+          title: updateProductDto.details.refundPolicy.title || null,
+          content: updateProductDto.details.refundPolicy.content,
+          enabled: true,
+        };
+      }
+
+      // If no enabled sections, set to empty object (removes all details)
+      updateData.details = Object.keys(processedDetails).length > 0 ? processedDetails : {};
+    }
+    // If details is not provided, keep existing details (don't include in updateData)
+
     const updatedProduct = await this.productModel.findByIdAndUpdate(
       id,
-      { $set: updateProductDto },
+      { $set: updateData },
       { new: true, runValidators: true },
     );
 
@@ -579,6 +706,79 @@ export class ProductsService {
     await this.invalidateProductCache(id);
 
     return product;
+  }
+
+  private validateVariants(variants: any[]) {
+    if (!variants || variants.length === 0) {
+      return;
+    }
+
+    // Check that at least one variant is default
+    const hasDefault = variants.some((v) => v.isDefault === true);
+    if (!hasDefault) {
+      // Auto-set first variant as default if none is set
+      variants[0].isDefault = true;
+    }
+
+    // Check for unique variant names
+    const variantNames = variants.map((v) => v.name);
+    const uniqueNames = new Set(variantNames);
+    if (variantNames.length !== uniqueNames.size) {
+      throw new BadRequestException('Variant names must be unique within a product');
+    }
+
+    // Validate each variant
+    for (const variant of variants) {
+      if (!variant.name || variant.name.trim() === '') {
+        throw new BadRequestException('Variant name is required');
+      }
+
+      if (variant.price === undefined || variant.price === null || variant.price <= 0) {
+        throw new BadRequestException('Variant price must be a positive number');
+      }
+
+      if (variant.stock === undefined || variant.stock === null || variant.stock < 0) {
+        throw new BadRequestException('Variant stock must be a non-negative number');
+      }
+
+      if (variant.compareAtPrice !== undefined && variant.compareAtPrice !== null) {
+        if (variant.compareAtPrice < variant.price) {
+          throw new BadRequestException(
+            `Variant "${variant.name}": compareAtPrice must be greater than or equal to price`,
+          );
+        }
+      }
+
+      // Validate tags if provided
+      if (variant.tags && Array.isArray(variant.tags)) {
+        const allowedTags = ['BEST SELLER', 'MONEY SAVER'];
+        const invalidTags = variant.tags.filter((tag: string) => !allowedTags.includes(tag));
+        if (invalidTags.length > 0) {
+          throw new BadRequestException(
+            `Invalid variant tags: ${invalidTags.join(', ')}. Allowed tags: ${allowedTags.join(', ')}`,
+          );
+        }
+      }
+    }
+  }
+
+  private validateDetails(details: any) {
+    if (!details) {
+      return;
+    }
+
+    const sections = ['whyChooseUs', 'keyBenefits', 'refundPolicy'];
+    
+    for (const sectionKey of sections) {
+      const section = details[sectionKey];
+      if (section && section.enabled) {
+        if (!section.content || section.content.trim() === '') {
+          throw new BadRequestException(
+            `${sectionKey}: content is required when section is enabled`,
+          );
+        }
+      }
+    }
   }
 
   private generateSlug(name: string): string {

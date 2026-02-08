@@ -13,7 +13,88 @@ import {
   MaxLength,
   ArrayMinSize,
   ValidateIf,
+  ValidateNested,
+  ArrayUnique,
 } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export class ProductVariantDto {
+  @ApiProperty({ description: 'Variant name (e.g., "1 Ltr", "500 ml")' })
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @ApiProperty()
+  @IsNumber()
+  @Min(0.01)
+  price: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @ValidateIf((o) => o.compareAtPrice !== undefined && o.compareAtPrice !== null)
+  compareAtPrice?: number;
+
+  @ApiProperty()
+  @IsNumber()
+  @Min(0)
+  stock: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  sku?: string;
+
+  @ApiPropertyOptional({ type: [String], description: 'Tags like "BEST SELLER", "MONEY SAVER"' })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  tags?: string[];
+
+  @ApiPropertyOptional({ default: false })
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
+}
+
+export class ProductDetailSectionDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @ApiPropertyOptional({ description: 'Content is required when enabled is true' })
+  @IsOptional()
+  @IsString()
+  @ValidateIf((o) => o.enabled === true)
+  @IsNotEmpty()
+  content?: string;
+
+  @ApiProperty({ default: true })
+  @IsBoolean()
+  enabled: boolean;
+}
+
+export class ProductDetailsDto {
+  @ApiPropertyOptional({ type: ProductDetailSectionDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProductDetailSectionDto)
+  whyChooseUs?: ProductDetailSectionDto;
+
+  @ApiPropertyOptional({ type: ProductDetailSectionDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProductDetailSectionDto)
+  keyBenefits?: ProductDetailSectionDto;
+
+  @ApiPropertyOptional({ type: ProductDetailSectionDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProductDetailSectionDto)
+  refundPolicy?: ProductDetailSectionDto;
+}
 
 export class CreateProductDto {
   @ApiProperty()
@@ -36,10 +117,14 @@ export class CreateProductDto {
   @IsString({ each: true })
   images?: string[];
 
-  @ApiProperty()
+  @ApiPropertyOptional({ 
+    description: 'Base price (used if no variants provided). If variants exist, this can be used as fallback or ignored.'
+  })
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  price: number;
+  @ValidateIf((o) => !o.variants || o.variants.length === 0)
+  price?: number;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -49,10 +134,14 @@ export class CreateProductDto {
   @Max(999999, { message: 'compareAtPrice must be less than 999999' })
   compareAtPrice?: number;
 
-  @ApiProperty()
+  @ApiPropertyOptional({ 
+    description: 'Base stock (used if no variants provided). If variants exist, this can be used as fallback or ignored.'
+  })
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  stock: number;
+  @ValidateIf((o) => !o.variants || o.variants.length === 0)
+  stock?: number;
 
   @ApiProperty()
   @IsString()
@@ -95,9 +184,24 @@ export class CreateProductDto {
   @IsOptional()
   specifications?: Record<string, any>;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ 
+    type: [ProductVariantDto],
+    description: 'Product variants (sizes with different prices). Optional - if not provided, product uses base price/stock.'
+  })
   @IsOptional()
-  variants?: Record<string, any>;
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductVariantDto)
+  variants?: ProductVariantDto[];
+
+  @ApiPropertyOptional({
+    type: ProductDetailsDto,
+    description: 'Collapsible product details sections (Why Choose Us, Key Benefits, Refund Policy). Optional.'
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProductDetailsDto)
+  details?: ProductDetailsDto;
 
   // Ghee-specific fields
   @ApiPropertyOptional({ enum: ['cow', 'buffalo', 'mixed'], description: 'Type of ghee' })

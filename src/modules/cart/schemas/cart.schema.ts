@@ -8,6 +8,12 @@ export class CartItem {
   @Prop({ type: Types.ObjectId, ref: 'Product', required: true })
   productId: Types.ObjectId;
 
+  @Prop()
+  variantId?: string;
+
+  @Prop()
+  variantName?: string;
+
   @Prop({ required: true, min: 1 })
   quantity: number;
 

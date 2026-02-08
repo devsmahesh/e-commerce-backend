@@ -59,21 +59,54 @@ export class OrdersService {
         throw new BadRequestException(`Product ${product.name} is not available`);
       }
 
-      if (product.stock < cartItem.quantity) {
-        throw new BadRequestException(`Insufficient stock for ${product.name}`);
+      // Check variant stock if variant is selected
+      let stock = product.stock;
+      let variantId: string | undefined = undefined;
+      let variantName: string | undefined = undefined;
+
+      if (cartItem.variantId) {
+        if (!product.variants || product.variants.length === 0) {
+          throw new BadRequestException(`Product ${product.name} does not have variants`);
+        }
+
+        const variant = product.variants.find(
+          (v: any) => {
+            const vId = (v as any)._id?.toString() || (v as any).id?.toString();
+            return vId === cartItem.variantId;
+          },
+        );
+
+        if (!variant) {
+          throw new NotFoundException(`Variant not found for product ${product.name}`);
+        }
+
+        stock = variant.stock;
+        variantId = cartItem.variantId;
+        variantName = cartItem.variantName || variant.name;
+      }
+
+      if (stock < cartItem.quantity) {
+        throw new BadRequestException(`Insufficient stock for ${product.name}${variantName ? ` (${variantName})` : ''}`);
       }
 
       const itemTotal = cartItem.price * cartItem.quantity;
       subtotal += itemTotal;
 
-      orderItems.push({
+      const orderItem: any = {
         productId: product._id,
         name: product.name,
         image: product.images?.[0] || '',
         quantity: cartItem.quantity,
         price: cartItem.price,
         total: itemTotal,
-      });
+      };
+
+      if (variantId) {
+        orderItem.variantId = variantId;
+        orderItem.variantName = variantName;
+      }
+
+      orderItems.push(orderItem);
     }
 
     // Calculate discount if coupon provided
@@ -154,11 +187,35 @@ export class OrdersService {
       paymentStatus: PaymentStatus.PENDING, // Initial payment status
     });
 
-    // Update product stock
+    // Update product stock and variant stock
     for (const item of orderItems) {
-      await this.productModel.findByIdAndUpdate(item.productId, {
-        $inc: { stock: -item.quantity, salesCount: item.quantity },
-      });
+      if (item.variantId) {
+        // Update variant stock and product salesCount
+        const product = await this.productModel.findById(item.productId);
+        if (product && product.variants) {
+          const variantIndex = product.variants.findIndex(
+            (v: any) => {
+              const vId = (v as any)._id?.toString() || (v as any).id?.toString();
+              return vId === item.variantId;
+            },
+          );
+          
+          if (variantIndex !== -1) {
+            product.variants[variantIndex].stock -= item.quantity;
+            if (product.variants[variantIndex].stock < 0) {
+              product.variants[variantIndex].stock = 0;
+            }
+            // Also update product salesCount
+            product.salesCount = (product.salesCount || 0) + item.quantity;
+            await product.save();
+          }
+        }
+      } else {
+        // Update product base stock
+        await this.productModel.findByIdAndUpdate(item.productId, {
+          $inc: { stock: -item.quantity, salesCount: item.quantity },
+        });
+      }
     }
 
     // Increment coupon usage if applied (atomic operation)
@@ -194,13 +251,21 @@ export class OrdersService {
         image: item.image || '',
       };
 
-      return {
+      const transformedItem: any = {
         id: itemId,
         product: product,
         quantity: item.quantity,
         price: item.price,
         total: item.total,
       };
+
+      // Include variant information if present
+      if (item.variantId) {
+        transformedItem.variantId = item.variantId;
+        transformedItem.variantName = item.variantName;
+      }
+
+      return transformedItem;
     });
 
     // Access timestamps directly from order document
@@ -468,12 +533,20 @@ export class OrdersService {
         price: productPrice,
       };
 
-      return {
+      const transformedItem: any = {
         id: itemId,
         product: product,
         quantity: item.quantity,
         price: item.price,
       };
+
+      // Include variant information if present
+      if (item.variantId) {
+        transformedItem.variantId = item.variantId;
+        transformedItem.variantName = item.variantName;
+      }
+
+      return transformedItem;
     });
 
     return {
@@ -687,13 +760,21 @@ export class OrdersService {
         price: productPrice,
       };
 
-      return {
+      const transformedItem: any = {
         id: itemId,
         product: product,
         quantity: item.quantity,
         price: item.price,
         total: item.total,
       };
+
+      // Include variant information if present
+      if (item.variantId) {
+        transformedItem.variantId = item.variantId;
+        transformedItem.variantName = item.variantName;
+      }
+
+      return transformedItem;
     });
 
     const orderDoc = order as any;
@@ -1073,13 +1154,21 @@ export class OrdersService {
         price: productPrice,
       };
 
-      return {
+      const transformedItem: any = {
         id: itemId,
         product: product,
         quantity: item.quantity,
         price: item.price,
         total: item.total || item.price * item.quantity,
       };
+
+      // Include variant information if present
+      if (item.variantId) {
+        transformedItem.variantId = item.variantId;
+        transformedItem.variantName = item.variantName;
+      }
+
+      return transformedItem;
     }) || [];
 
     const orderDoc = order as any;

@@ -1,7 +1,61 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document } from 'mongoose';
+import { Document, Schema as MongooseSchema } from 'mongoose';
 
 export type ProductDocument = Product & Document;
+
+@Schema({ _id: true })
+export class ProductVariant {
+  @Prop({ required: true })
+  name: string;
+
+  @Prop({ required: true, type: Number, min: 0 })
+  price: number;
+
+  @Prop({ type: Number, min: 0 })
+  compareAtPrice?: number;
+
+  @Prop({ required: true, type: Number, min: 0, default: 0 })
+  stock: number;
+
+  @Prop()
+  sku?: string;
+
+  @Prop({ type: [String] })
+  tags?: string[];
+
+  @Prop({ default: false })
+  isDefault: boolean;
+}
+
+export const ProductVariantSchema = SchemaFactory.createForClass(ProductVariant);
+
+@Schema({ _id: false })
+export class ProductDetailSection {
+  @Prop()
+  title?: string;
+
+  @Prop()
+  content?: string;
+
+  @Prop({ default: false })
+  enabled: boolean;
+}
+
+export const ProductDetailSectionSchema = SchemaFactory.createForClass(ProductDetailSection);
+
+@Schema({ _id: false })
+export class ProductDetails {
+  @Prop({ type: ProductDetailSectionSchema })
+  whyChooseUs?: ProductDetailSection;
+
+  @Prop({ type: ProductDetailSectionSchema })
+  keyBenefits?: ProductDetailSection;
+
+  @Prop({ type: ProductDetailSectionSchema })
+  refundPolicy?: ProductDetailSection;
+}
+
+export const ProductDetailsSchema = SchemaFactory.createForClass(ProductDetails);
 
 @Schema({ timestamps: true })
 export class Product {
@@ -50,8 +104,11 @@ export class Product {
   @Prop({ type: Object })
   specifications?: Record<string, any>;
 
-  @Prop({ type: Object })
-  variants?: Record<string, any>;
+  @Prop({ type: [ProductVariantSchema], default: [] })
+  variants?: ProductVariant[];
+
+  @Prop({ type: ProductDetailsSchema })
+  details?: ProductDetails;
 
   @Prop()
   sku?: string;
