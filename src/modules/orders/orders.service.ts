@@ -588,7 +588,13 @@ export class OrdersService {
 
     // Send detailed cancellation notification to admin if order is cancelled
     if (updateDto.status === OrderStatus.Cancelled) {
+      this.logger.log(`Order ${order.orderNumber} status changed to cancelled. Sending admin notification...`);
       try {
+        // Ensure order is populated before accessing user data
+        if (!order.userId || typeof order.userId === 'string') {
+          await order.populate('userId', 'email firstName lastName');
+        }
+        
         const user = order.userId as any;
         const customerName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : 'Customer';
         const customerEmail = user?.email || 'Unknown';
@@ -602,42 +608,53 @@ export class OrdersService {
         if (adminUsers.length === 0) {
           this.logger.warn(`No admin users found in database. Order cancellation notification not sent for order ${order.orderNumber}. Please ensure admin users exist with role 'admin' and isActive: true.`);
         } else {
-          for (const admin of adminUsers) {
+          for (let i = 0; i < adminUsers.length; i++) {
+            const admin = adminUsers[i];
             if (admin.email) {
               try {
-                this.logger.log(`Attempting to send cancellation notification to admin: ${admin.email}`);
+                // Add delay between emails to respect rate limits (skip delay for first email)
+                if (i > 0) {
+                  await new Promise(resolve => setTimeout(resolve, 700)); // 700ms delay between admin emails
+                }
+                this.logger.log(`Attempting to send cancellation notification to admin: ${admin.email} for order ${order.orderNumber}`);
                 await this.emailService.sendOrderCancellationNotificationToAdmin(admin.email, {
-                orderNumber: order.orderNumber,
-                customerName,
-                customerEmail,
-                previousStatus,
-                cancellationReason: order.cancellationReason || undefined,
-                paymentStatus: order.paymentStatus || 'pending',
-                paymentMethod: order.paymentMethod || undefined,
-                items: order.items.map((item: any) => ({
-                  name: item.name,
-                  quantity: item.quantity,
-                  price: item.price,
-                  total: item.total,
-                })),
-                subtotal: order.subtotal,
-                shipping: order.shippingCost || 0,
-                tax: order.tax,
-                discount: order.discount || 0,
-                total: order.total,
-                shippingAddress: order.shippingAddress,
-                orderDate: orderDoc.createdAt || new Date(),
-                cancelledAt: order.cancelledAt || new Date(),
-              });
-                this.logger.log(`Order cancellation notification sent to admin ${admin.email} for order ${order.orderNumber}`);
+                  orderNumber: order.orderNumber,
+                  customerName,
+                  customerEmail,
+                  previousStatus,
+                  cancellationReason: order.cancellationReason || undefined,
+                  paymentStatus: order.paymentStatus || 'pending',
+                  paymentMethod: order.paymentMethod || undefined,
+                  items: (order.items || []).map((item: any) => ({
+                    name: item.name || 'Unknown Product',
+                    quantity: item.quantity || 0,
+                    price: item.price || 0,
+                    total: item.total || 0,
+                  })),
+                  subtotal: order.subtotal || 0,
+                  shipping: order.shippingCost || 0,
+                  tax: order.tax || 0,
+                  discount: order.discount || 0,
+                  total: order.total || 0,
+                  shippingAddress: order.shippingAddress || {},
+                  orderDate: orderDoc.createdAt || new Date(),
+                  cancelledAt: order.cancelledAt || new Date(),
+                });
+                this.logger.log(`✅ Order cancellation notification sent to admin ${admin.email} for order ${order.orderNumber}`);
               } catch (emailError) {
-                this.logger.error(`Failed to send cancellation notification to ${admin.email}: ${emailError instanceof Error ? emailError.message : String(emailError)}`);
+                this.logger.error(`❌ Failed to send cancellation notification to ${admin.email}: ${emailError instanceof Error ? emailError.message : String(emailError)}`);
+                if (emailError instanceof Error && emailError.stack) {
+                  this.logger.error(`Stack trace: ${emailError.stack}`);
+                }
               }
             }
           }
         }
       } catch (error) {
-        this.logger.error(`Failed to send cancellation notification to admin: ${error instanceof Error ? error.message : String(error)}`);
+        this.logger.error(`❌ Failed to send cancellation notification to admin: ${error instanceof Error ? error.message : String(error)}`);
+        if (error instanceof Error && error.stack) {
+          this.logger.error(`Stack trace: ${error.stack}`);
+        }
         // Don't fail cancellation if email fails
       }
     }
@@ -1269,7 +1286,13 @@ export class OrdersService {
     }
 
     // Send cancellation notification to admin
+    this.logger.log(`Order ${order.orderNumber} cancelled via cancelOrder method. Sending admin notification...`);
     try {
+      // Ensure order is populated before accessing user data
+      if (!order.userId || typeof order.userId === 'string') {
+        await order.populate('userId', 'email firstName lastName');
+      }
+      
       const user = order.userId as any;
       const customerName = user
         ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email
@@ -1286,45 +1309,56 @@ export class OrdersService {
 
       if (adminUsers.length === 0) {
         this.logger.warn(`No admin users found in database. Order cancellation notification not sent for order ${order.orderNumber}. Please ensure admin users exist with role 'admin' and isActive: true.`);
-      } else {
-        for (const admin of adminUsers) {
-          if (admin.email) {
-            try {
-              this.logger.log(`Attempting to send cancellation notification to admin: ${admin.email}`);
-              await this.emailService.sendOrderCancellationNotificationToAdmin(admin.email, {
-                orderNumber: order.orderNumber,
-                customerName,
-                customerEmail,
-                previousStatus,
-                cancellationReason: order.cancellationReason || undefined,
-                paymentStatus: order.paymentStatus || 'pending',
-                paymentMethod: order.paymentMethod || undefined,
-                items: order.items.map((item: any) => ({
-                  name: item.name,
-                  quantity: item.quantity,
-                  price: item.price,
-                  total: item.total,
-                })),
-                subtotal: order.subtotal,
-                shipping: order.shippingCost || 0,
-                tax: order.tax,
-                discount: order.discount || 0,
-                total: order.total,
-                shippingAddress: order.shippingAddress,
-                orderDate: orderDoc.createdAt || new Date(),
-                cancelledAt: order.cancelledAt || new Date(),
-              });
-              this.logger.log(`Order cancellation notification sent to admin ${admin.email} for order ${order.orderNumber}`);
-            } catch (emailError) {
-              this.logger.error(`Failed to send cancellation notification to ${admin.email}: ${emailError instanceof Error ? emailError.message : String(emailError)}`);
+        } else {
+          for (let i = 0; i < adminUsers.length; i++) {
+            const admin = adminUsers[i];
+            if (admin.email) {
+              try {
+                // Add delay between emails to respect rate limits (skip delay for first email)
+                if (i > 0) {
+                  await new Promise(resolve => setTimeout(resolve, 700)); // 700ms delay between admin emails
+                }
+                this.logger.log(`Attempting to send cancellation notification to admin: ${admin.email} for order ${order.orderNumber}`);
+                await this.emailService.sendOrderCancellationNotificationToAdmin(admin.email, {
+                  orderNumber: order.orderNumber,
+                  customerName,
+                  customerEmail,
+                  previousStatus,
+                  cancellationReason: order.cancellationReason || undefined,
+                  paymentStatus: order.paymentStatus || 'pending',
+                  paymentMethod: order.paymentMethod || undefined,
+                  items: (order.items || []).map((item: any) => ({
+                    name: item.name || 'Unknown Product',
+                    quantity: item.quantity || 0,
+                    price: item.price || 0,
+                    total: item.total || 0,
+                  })),
+                  subtotal: order.subtotal || 0,
+                  shipping: order.shippingCost || 0,
+                  tax: order.tax || 0,
+                  discount: order.discount || 0,
+                  total: order.total || 0,
+                  shippingAddress: order.shippingAddress || {},
+                  orderDate: orderDoc.createdAt || new Date(),
+                  cancelledAt: order.cancelledAt || new Date(),
+                });
+                this.logger.log(`✅ Order cancellation notification sent to admin ${admin.email} for order ${order.orderNumber}`);
+              } catch (emailError) {
+                this.logger.error(`❌ Failed to send cancellation notification to ${admin.email}: ${emailError instanceof Error ? emailError.message : String(emailError)}`);
+                if (emailError instanceof Error && emailError.stack) {
+                  this.logger.error(`Stack trace: ${emailError.stack}`);
+                }
+              }
             }
           }
         }
-      }
     } catch (error) {
       this.logger.error(
-        `Failed to send cancellation notification to admin: ${error instanceof Error ? error.message : String(error)}`,
+        `❌ Failed to send cancellation notification to admin: ${error instanceof Error ? error.message : String(error)}`,
       );
+      if (error instanceof Error && error.stack) {
+        this.logger.error(`Stack trace: ${error.stack}`);
+      }
     }
 
     // Transform and return updated order

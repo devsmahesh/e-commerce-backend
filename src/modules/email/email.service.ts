@@ -6,6 +6,8 @@ import { Resend } from 'resend';
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private resend: Resend | null = null;
+  private lastEmailSentAt: number = 0;
+  private readonly MIN_EMAIL_INTERVAL_MS = 600; // 600ms = ~1.67 requests/second (under 2/sec limit)
 
   // Brand colors
   private readonly PRIMARY_COLOR = '#67033F';
@@ -896,6 +898,88 @@ export class EmailService {
     };
   }
 
+  /**
+   * Rate limiter to respect Resend's 2 requests/second limit
+   */
+  private async waitForRateLimit(): Promise<void> {
+    const now = Date.now();
+    const timeSinceLastEmail = now - this.lastEmailSentAt;
+    
+    if (timeSinceLastEmail < this.MIN_EMAIL_INTERVAL_MS) {
+      const waitTime = this.MIN_EMAIL_INTERVAL_MS - timeSinceLastEmail;
+      this.logger.debug(`Rate limiting: waiting ${waitTime}ms before sending next email`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+    
+    this.lastEmailSentAt = Date.now();
+  }
+
+  /**
+   * Retry logic with exponential backoff for rate limit errors
+   */
+  private async sendEmailWithRetry(
+    mailOptions: {
+      from: string;
+      to: string | string[];
+      subject: string;
+      html: string;
+      text?: string;
+    },
+    maxRetries: number = 3,
+  ): Promise<void> {
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Wait for rate limit before each attempt
+        await this.waitForRateLimit();
+        
+        const recipients = Array.isArray(mailOptions.to) ? mailOptions.to : [mailOptions.to];
+        
+        const result = await this.resend!.emails.send({
+          from: mailOptions.from,
+          to: recipients,
+          subject: mailOptions.subject,
+          html: mailOptions.html,
+          text: mailOptions.text,
+        });
+
+        if (result.error) {
+          throw new Error(result.error.message || 'Failed to send email via Resend');
+        }
+
+        const messageId = result.data?.id || 'N/A';
+        const successMsg = `Email sent successfully to ${mailOptions.to}. MessageId: ${messageId}`;
+        this.logger.log(successMsg);
+        console.log('✅', successMsg);
+        console.log('===================================\n');
+        return; // Success, exit retry loop
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const errorMessage = lastError.message.toLowerCase();
+        
+        // Check if it's a rate limit error
+        const isRateLimitError = errorMessage.includes('rate limit') || 
+                                errorMessage.includes('too many requests') ||
+                                errorMessage.includes('429');
+        
+        if (isRateLimitError && attempt < maxRetries) {
+          // Exponential backoff: wait 1s, 2s, 4s
+          const backoffTime = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+          this.logger.warn(`Rate limit hit. Retrying in ${backoffTime}ms (attempt ${attempt}/${maxRetries})...`);
+          await new Promise(resolve => setTimeout(resolve, backoffTime));
+          continue;
+        }
+        
+        // If not a rate limit error or max retries reached, throw
+        throw lastError;
+      }
+    }
+    
+    // If we get here, all retries failed
+    throw lastError || new Error('Failed to send email after retries');
+  }
+
   private async sendEmail(mailOptions: {
     from: string;
     to: string | string[];
@@ -917,25 +1001,7 @@ export class EmailService {
 
     try {
       console.log('Sending email via Resend...');
-      const recipients = Array.isArray(mailOptions.to) ? mailOptions.to : [mailOptions.to];
-      
-      const result = await this.resend.emails.send({
-        from: mailOptions.from,
-        to: recipients,
-        subject: mailOptions.subject,
-        html: mailOptions.html,
-        text: mailOptions.text,
-      });
-
-      if (result.error) {
-        throw new Error(result.error.message || 'Failed to send email via Resend');
-      }
-
-      const messageId = result.data?.id || 'N/A';
-      const successMsg = `Email sent successfully to ${mailOptions.to}. MessageId: ${messageId}`;
-      this.logger.log(successMsg);
-      console.log('✅', successMsg);
-      console.log('===================================\n');
+      await this.sendEmailWithRetry(mailOptions);
     } catch (error) {
       const errorMsg = `Failed to send email to ${mailOptions.to}`;
       this.logger.error(errorMsg, error);
