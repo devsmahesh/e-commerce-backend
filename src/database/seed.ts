@@ -73,7 +73,7 @@ async function bootstrap() {
       price: 599.99,
       compareAtPrice: 699.99,
       stock: 100,
-      categoryId: categories[4]._id,
+      categoryId: categories[0]._id,
       tags: ['ghee', 'cow', 'premium', 'organic'],
       isActive: true,
       isFeatured: true,
@@ -93,7 +93,7 @@ async function bootstrap() {
       price: 1199.99,
       compareAtPrice: 1399.99,
       stock: 50,
-      categoryId: categories[4]._id,
+      categoryId: categories[0]._id,
       tags: ['ghee', 'buffalo', 'premium'],
       isActive: true,
       isFeatured: true,
@@ -112,7 +112,7 @@ async function bootstrap() {
       images: ['https://via.placeholder.com/500'],
       price: 549.99,
       stock: 75,
-      categoryId: categories[4]._id,
+      categoryId: categories[0]._id,
       tags: ['ghee', 'mixed'],
       isActive: true,
       sku: 'GHEE-MIX-500',
@@ -129,8 +129,7 @@ async function bootstrap() {
 
   console.log('🎉 Database seeding completed!');
   console.log('\n📝 Login credentials:');
-  console.log('Admin: admin@example.com / Admin123!');
-  console.log('User: user@example.com / User123!');
+  console.log('Admin: runiche46@gmail.com / Runiche@$12three');
 
   await app.close();
 }
