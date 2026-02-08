@@ -94,17 +94,24 @@ export class EmailService {
     await this.sendEmail(mailOptions);
   }
 
-  async sendPasswordResetEmail(email: string, token: string): Promise<void> {
-    const frontendUrl = this.configService.get<string>('FRONTEND_URL') || 'http://localhost:3000';
-    const emailFrom = this.configService.get<string>('EMAIL_FROM') || 'noreply@ecommerce.com';
+  async sendPasswordResetEmail(
+    email: string,
+    firstName: string,
+    token: string,
+  ): Promise<void> {
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL') ||
+      'http://localhost:3000';
+    const emailFrom =
+      this.configService.get<string>('EMAIL_FROM') ||
+      'noreply@ecommerce.com';
     const resetUrl = `${frontendUrl}/reset-password/${token}`;
-    const apiUrl = this.configService.get<string>('API_URL') || 'http://localhost:8000';
     const logoUrl = this.getLogoUrl();
 
     const mailOptions = {
       from: emailFrom,
       to: email,
-      subject: 'Reset Your Password',
+      subject: 'Reset Your Password - Runiche',
       html: `
         <!DOCTYPE html>
         <html>
@@ -116,35 +123,45 @@ export class EmailService {
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px;">
             ${this.getEmailHeader(logoUrl)}
-            <h1 style="color: ${this.PRIMARY_COLOR}; margin-top: 0;">Password Reset Request</h1>
-            <p>You requested to reset your password. Click the button below to reset it:</p>
+            <h1 style="color: ${this.PRIMARY_COLOR}; margin-top: 0;">Reset Your Password</h1>
+            <p>Hi ${firstName},</p>
+            <p>You requested to reset your password for your Runiche account.</p>
+            <p>Click the link below to reset your password:</p>
             <div style="text-align: center; margin: 30px 0;">
               <a href="${resetUrl}" style="background-color: ${this.SECONDARY_COLOR}; color: ${this.SECONDARY_FOREGROUND}; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">Reset Password</a>
             </div>
             <p>Or copy and paste this link into your browser:</p>
             <p style="word-break: break-all; color: ${this.PRIMARY_COLOR};"><a href="${resetUrl}" style="color: ${this.PRIMARY_COLOR};">${resetUrl}</a></p>
             <p style="font-size: 12px; color: #666; margin-top: 30px;">
-              <strong>Token:</strong> ${token}<br>
-              <strong>API Endpoint:</strong> ${apiUrl}/api/v1/auth/reset-password
+              This link will expire in 1 hour.
             </p>
             <p style="font-size: 12px; color: #666; margin-top: 20px;">
-              This reset link will expire in 1 hour. If you didn't request a password reset, please ignore this email.
+              If you didn't request this, please ignore this email. Your password will remain unchanged.
+            </p>
+            <p style="margin-top: 30px;">
+              Best regards,<br>
+              <strong>Runiche Team</strong>
             </p>
           </div>
         </body>
         </html>
       `,
       text: `
-        Password Reset Request
+        Reset Your Password - Runiche
         
-        You requested to reset your password. Visit the following link to reset it:
+        Hi ${firstName},
         
+        You requested to reset your password for your Runiche account.
+        
+        Click the link below to reset your password:
         ${resetUrl}
         
-        Token: ${token}
-        API Endpoint: ${apiUrl}/api/v1/auth/reset-password
+        This link will expire in 1 hour.
         
-        This reset link will expire in 1 hour. If you didn't request a password reset, please ignore this email.
+        If you didn't request this, please ignore this email. Your password will remain unchanged.
+        
+        Best regards,
+        Runiche Team
       `,
     };
 
@@ -1276,6 +1293,69 @@ export class EmailService {
       console.log('===================================\n');
       throw error;
     }
+  }
+
+  async sendPasswordChangeEmail(
+    email: string,
+    firstName: string,
+  ): Promise<void> {
+    const emailFrom =
+      this.configService.get<string>('EMAIL_FROM') ||
+      'noreply@ecommerce.com';
+    const logoUrl = this.getLogoUrl();
+    const timestamp = new Date().toLocaleString();
+
+    const mailOptions = {
+      from: emailFrom,
+      to: email,
+      subject: 'Your Password Has Been Changed - Runiche',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Password Changed</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px;">
+            ${this.getEmailHeader(logoUrl)}
+            <h1 style="color: ${this.PRIMARY_COLOR}; margin-top: 0;">Password Changed</h1>
+            <p>Hi ${firstName},</p>
+            <p>Your password for your Runiche account was changed on <strong>${timestamp}</strong>.</p>
+            <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid ${this.PRIMARY_COLOR};">
+              <p style="margin: 0;"><strong>If you made this change, no further action is needed.</strong></p>
+            </div>
+            <div style="background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #ffc107;">
+              <p style="margin: 0; color: #856404;">
+                <strong>If you didn't make this change, please contact us immediately and consider resetting your password.</strong>
+              </p>
+            </div>
+            <p style="margin-top: 30px;">
+              Best regards,<br>
+              <strong>Runiche Team</strong>
+            </p>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        Password Changed - Runiche
+        
+        Hi ${firstName},
+        
+        Your password for your Runiche account was changed on ${timestamp}.
+        
+        If you made this change, no further action is needed.
+        
+        If you didn't make this change, please contact us immediately and consider resetting your password.
+        
+        Best regards,
+        Runiche Team
+      `,
+    };
+
+    await this.sendEmail(mailOptions);
   }
 }
 

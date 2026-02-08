@@ -10,8 +10,13 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { User, UserDocument } from './schemas/user.schema';
+import {
+  PasswordResetToken,
+  PasswordResetTokenDocument,
+} from './schemas/password-reset-token.schema';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -25,6 +30,8 @@ export class AuthService {
 
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
+    @InjectModel(PasswordResetToken.name)
+    private passwordResetTokenModel: Model<PasswordResetTokenDocument>,
     private jwtService: JwtService,
     private emailService: EmailService,
     private configService: ConfigService,
@@ -185,94 +192,184 @@ export class AuthService {
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {
     const { email } = forgotPasswordDto;
 
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email)) {
+      throw new BadRequestException('Invalid email format');
+    }
+
     // Normalize email to lowercase
     const normalizedEmail = email.toLowerCase().trim();
 
+    // Find user (but don't reveal if email exists for security)
     const user = await this.userModel.findOne({ email: normalizedEmail });
+
+    // Check for rate limiting: max 3 requests per email per hour
+    if (user) {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const recentTokens = await this.passwordResetTokenModel.countDocuments({
+        userId: user._id,
+        createdAt: { $gte: oneHourAgo },
+      });
+
+      if (recentTokens >= 3) {
+        this.logger.warn(
+          `Rate limit exceeded for password reset requests: ${normalizedEmail}`,
+        );
+        // Still return success message to prevent email enumeration
+        return {
+          success: true,
+          message: 'Password reset link has been sent to your email',
+        };
+      }
+    }
+
+    // Always return success message to prevent email enumeration
     if (!user) {
-      // Don't reveal if user exists for security
-      return { message: 'If the email exists, a password reset link has been sent' };
-    }
-
-    // Generate reset token
-    const passwordResetToken = uuidv4();
-    const passwordResetExpires = new Date();
-    passwordResetExpires.setHours(passwordResetExpires.getHours() + 1);
-
-    user.passwordResetToken = passwordResetToken;
-    user.passwordResetExpires = passwordResetExpires;
-    await user.save();
-
-    // Check email service configuration
-    const emailStatus = this.emailService.getEmailStatus();
-    const isDevelopment = this.configService.get<string>('NODE_ENV') === 'development';
-
-    // Send password reset email
-    let emailSent = false;
-    let emailError: string | null = null;
-    
-    console.log('\n=== FORGOT PASSWORD REQUEST ===');
-    console.log('User email:', user.email);
-    console.log('Reset token generated:', passwordResetToken.substring(0, 8) + '...');
-    console.log('Email service configured:', emailStatus.configured);
-    
-    try {
-      await this.emailService.sendPasswordResetEmail(user.email, passwordResetToken);
-      emailSent = true;
-      const successMsg = `Password reset email sent successfully to ${user.email}`;
-      this.logger.log(successMsg);
-      console.log('✅', successMsg);
-    } catch (error) {
-      // Log error but don't reveal if email failed for security
-      emailError = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Failed to send password reset email to ${user.email}:`, error);
-      this.logger.error('Error details:', emailError);
-      console.error('❌ Failed to send password reset email:', emailError);
-      // Still return success message for security (don't reveal if user exists)
-    }
-    console.log('==================================\n');
-
-    const response: any = { 
-      message: 'If the email exists, a password reset link has been sent' 
-    };
-
-    // Include debug info in development mode
-    if (isDevelopment) {
-      response.debug = {
-        emailServiceConfigured: emailStatus.configured,
-        emailSent,
-        emailStatus: {
-          service: emailStatus.service || 'Not configured',
-          hasApiKey: emailStatus.hasApiKey,
-        },
-        ...(emailError && { emailError }),
+      this.logger.log(
+        `Password reset requested for non-existent email: ${normalizedEmail}`,
+      );
+      return {
+        success: true,
+        message: 'Password reset link has been sent to your email',
       };
     }
 
-    return response;
+    // Check if user is active
+    if (!user.isActive) {
+      // Still return success to prevent revealing account status
+      this.logger.warn(
+        `Password reset requested for inactive account: ${normalizedEmail}`,
+      );
+      return {
+        success: true,
+        message: 'Password reset link has been sent to your email',
+      };
+    }
+
+    // Generate cryptographically secure reset token (64 character hex string)
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 1); // 1 hour expiration
+
+    // Create password reset token document
+    await this.passwordResetTokenModel.create({
+      userId: user._id,
+      token,
+      expiresAt,
+      used: false,
+    });
+
+    // Log the request for security monitoring
+    this.logger.log(
+      `Password reset token generated for user: ${user.email} (ID: ${user._id})`,
+    );
+
+    // Send password reset email
+    try {
+      await this.emailService.sendPasswordResetEmail(
+        user.email,
+        user.firstName,
+        token,
+      );
+      this.logger.log(
+        `Password reset email sent successfully to ${user.email}`,
+      );
+    } catch (error) {
+      // Log error but don't reveal if email failed for security
+      this.logger.error(
+        `Failed to send password reset email to ${user.email}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+      // Still return success message for security
+    }
+
+    return {
+      success: true,
+      message: 'Password reset link has been sent to your email',
+    };
   }
 
   async resetPassword(resetPasswordDto: ResetPasswordDto) {
     const { token, password } = resetPasswordDto;
 
-    const user = await this.userModel.findOne({
-      passwordResetToken: token,
-      passwordResetExpires: { $gt: new Date() },
-    });
+    // Validate input
+    if (!token || !password) {
+      throw new BadRequestException('Token and password are required');
+    }
 
-    if (!user) {
+    // Validate password length
+    if (password.length < 6) {
+      throw new BadRequestException('Password must be at least 6 characters');
+    }
+
+    // Find the reset token
+    const resetToken = await this.passwordResetTokenModel.findOne({ token });
+
+    if (!resetToken) {
+      this.logger.warn(`Invalid password reset token attempted: ${token.substring(0, 8)}...`);
       throw new BadRequestException('Invalid or expired reset token');
     }
 
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Check if token is already used
+    if (resetToken.used) {
+      this.logger.warn(
+        `Attempted to use already-used password reset token: ${token.substring(0, 8)}...`,
+      );
+      throw new BadRequestException(
+        'This reset link has already been used. Please request a new one',
+      );
+    }
 
+    // Check if token is expired
+    if (new Date() > resetToken.expiresAt) {
+      this.logger.warn(
+        `Attempted to use expired password reset token: ${token.substring(0, 8)}...`,
+      );
+      throw new BadRequestException(
+        'Reset token has expired. Please request a new one',
+      );
+    }
+
+    // Find the user
+    const user = await this.userModel.findById(resetToken.userId);
+    if (!user) {
+      this.logger.error(
+        `Password reset token references non-existent user: ${resetToken.userId}`,
+      );
+      throw new BadRequestException('Invalid or expired reset token');
+    }
+
+    // Check if user is active
+    if (!user.isActive) {
+      throw new BadRequestException('Account is deactivated');
+    }
+
+    // Hash new password with bcrypt (12 salt rounds for better security)
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    // Update user password
     user.password = hashedPassword;
-    user.passwordResetToken = undefined;
-    user.passwordResetExpires = undefined;
     await user.save();
 
-    return { message: 'Password reset successfully' };
+    // Mark token as used
+    resetToken.used = true;
+    resetToken.usedAt = new Date();
+    await resetToken.save();
+
+    // Invalidate all existing refresh tokens for security (force re-login on all devices)
+    user.refreshTokens = [];
+    await user.save();
+
+    // Log the password reset for security monitoring
+    this.logger.log(
+      `Password reset successful for user: ${user.email} (ID: ${user._id})`,
+    );
+
+    return {
+      success: true,
+      message: 'Password has been reset successfully',
+    };
   }
 
   async logout(userId: string, refreshToken: string) {

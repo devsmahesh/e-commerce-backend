@@ -1,19 +1,25 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import * as bcrypt from 'bcrypt';
 import { User, UserDocument } from '../auth/schemas/user.schema';
 import { Product, ProductDocument } from '../products/schemas/product.schema';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AddAddressDto } from './dto/add-address.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { Address } from './schemas/address.schema';
 import { FileUploadService } from '../../common/services/file-upload.service';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     @InjectModel(Product.name) private productModel: Model<ProductDocument>,
     private fileUploadService: FileUploadService,
+    private emailService: EmailService,
   ) {}
 
   async getProfile(userId: string) {
@@ -314,6 +320,76 @@ export class UsersService {
         ...userWithoutSensitive,
         id: user._id.toString(),
       },
+    };
+  }
+
+  async changePassword(userId: string, changePasswordDto: ChangePasswordDto) {
+    const { currentPassword, newPassword } = changePasswordDto;
+
+    // Validate input
+    if (!currentPassword || !newPassword) {
+      throw new BadRequestException('Current password and new password are required');
+    }
+
+    // Validate new password length
+    if (newPassword.length < 6) {
+      throw new BadRequestException('Password must be at least 6 characters');
+    }
+
+    // Find user (password is included by default in the schema)
+    const user = await this.userModel.findById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Verify current password
+    const isCurrentPasswordValid = await bcrypt.compare(
+      currentPassword,
+      user.password,
+    );
+    if (!isCurrentPasswordValid) {
+      this.logger.warn(`Invalid current password attempt for user: ${user.email} (ID: ${userId})`);
+      throw new BadRequestException('Current password is incorrect');
+    }
+
+    // Check if new password is different from current password
+    const isSamePassword = await bcrypt.compare(newPassword, user.password);
+    if (isSamePassword) {
+      throw new BadRequestException('New password must be different from current password');
+    }
+
+    // Hash new password with bcrypt (12 salt rounds for better security)
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+    // Update user password
+    user.password = hashedPassword;
+
+    // Invalidate all existing refresh tokens for security (force re-login on all devices)
+    user.refreshTokens = [];
+    await user.save();
+
+    // Log the password change for security monitoring
+    this.logger.log(
+      `Password changed successfully for user: ${user.email} (ID: ${userId})`,
+    );
+
+    // Send email notification
+    try {
+      await this.emailService.sendPasswordChangeEmail(
+        user.email,
+        user.firstName,
+      );
+      this.logger.log(`Password change email sent to ${user.email}`);
+    } catch (error) {
+      // Log error but don't fail the password change if email fails
+      this.logger.error(
+        `Failed to send password change email to ${user.email}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    return {
+      success: true,
+      message: 'Password has been changed successfully',
     };
   }
 }
