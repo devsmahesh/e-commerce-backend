@@ -93,8 +93,10 @@ export class ContactService {
         .select('email')
         .lean();
 
+      console.log(`Found ${adminUsers.length} admin user(s) for contact form notification. Admin emails: ${adminUsers.map(a => a.email).join(', ') || 'none'}`);
+
       if (adminUsers.length === 0) {
-        console.warn(`No admin users found in database. Contact form notification not sent for contact ${contact._id}. Please ensure admin users exist with role 'admin'.`);
+        console.warn(`No admin users found in database. Contact form notification not sent for contact ${contact._id}. Please ensure admin users exist with role 'admin' and isActive: true.`);
         return;
       }
 
@@ -102,6 +104,7 @@ export class ContactService {
       for (const admin of adminUsers) {
         if (admin.email) {
           try {
+            console.log(`Attempting to send contact form notification to admin: ${admin.email}`);
             await this.emailService.sendContactFormNotificationToAdmin(
               admin.email,
               {

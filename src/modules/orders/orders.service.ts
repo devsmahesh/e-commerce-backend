@@ -239,12 +239,15 @@ export class OrdersService {
       const customerName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : 'Customer';
       const customerEmail = user?.email || 'Unknown';
 
+      this.logger.log(`Found ${adminUsers.length} admin user(s) for order notification. Admin emails: ${adminUsers.map(a => a.email).join(', ') || 'none'}`);
+
       if (adminUsers.length === 0) {
-        this.logger.warn(`No admin users found in database. Order notification not sent for order ${order.orderNumber}. Please ensure admin users exist with role 'admin'.`);
+        this.logger.warn(`No admin users found in database. Order notification not sent for order ${order.orderNumber}. Please ensure admin users exist with role 'admin' and isActive: true.`);
       } else {
         for (const admin of adminUsers) {
           if (admin.email) {
             try {
+              this.logger.log(`Attempting to send order notification to admin: ${admin.email}`);
               await this.emailService.sendNewOrderNotificationToAdmin(admin.email, {
                 orderNumber: order.orderNumber,
                 customerName,
@@ -594,12 +597,15 @@ export class OrdersService {
         // Get all admin users
         const adminUsers = await this.userModel.find({ role: Role.Admin, isActive: true }).select('email firstName lastName').lean();
 
+        this.logger.log(`Found ${adminUsers.length} admin user(s) for cancellation notification. Admin emails: ${adminUsers.map(a => a.email).join(', ') || 'none'}`);
+
         if (adminUsers.length === 0) {
-          this.logger.warn(`No admin users found in database. Order cancellation notification not sent for order ${order.orderNumber}. Please ensure admin users exist with role 'admin'.`);
+          this.logger.warn(`No admin users found in database. Order cancellation notification not sent for order ${order.orderNumber}. Please ensure admin users exist with role 'admin' and isActive: true.`);
         } else {
           for (const admin of adminUsers) {
             if (admin.email) {
               try {
+                this.logger.log(`Attempting to send cancellation notification to admin: ${admin.email}`);
                 await this.emailService.sendOrderCancellationNotificationToAdmin(admin.email, {
                 orderNumber: order.orderNumber,
                 customerName,
@@ -1276,12 +1282,15 @@ export class OrdersService {
         .select('email firstName lastName')
         .lean();
 
+      this.logger.log(`Found ${adminUsers.length} admin user(s) for cancellation notification. Admin emails: ${adminUsers.map(a => a.email).join(', ') || 'none'}`);
+
       if (adminUsers.length === 0) {
-        this.logger.warn(`No admin users found in database. Order cancellation notification not sent for order ${order.orderNumber}. Please ensure admin users exist with role 'admin'.`);
+        this.logger.warn(`No admin users found in database. Order cancellation notification not sent for order ${order.orderNumber}. Please ensure admin users exist with role 'admin' and isActive: true.`);
       } else {
         for (const admin of adminUsers) {
           if (admin.email) {
             try {
+              this.logger.log(`Attempting to send cancellation notification to admin: ${admin.email}`);
               await this.emailService.sendOrderCancellationNotificationToAdmin(admin.email, {
                 orderNumber: order.orderNumber,
                 customerName,
