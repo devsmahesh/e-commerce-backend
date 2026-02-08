@@ -203,8 +203,8 @@ export class AuthService {
     user.passwordResetExpires = passwordResetExpires;
     await user.save();
 
-    // Check SMTP configuration
-    const smtpStatus = this.emailService.getSmtpStatus();
+    // Check email service configuration
+    const emailStatus = this.emailService.getEmailStatus();
     const isDevelopment = this.configService.get<string>('NODE_ENV') === 'development';
 
     // Send password reset email
@@ -214,7 +214,7 @@ export class AuthService {
     console.log('\n=== FORGOT PASSWORD REQUEST ===');
     console.log('User email:', user.email);
     console.log('Reset token generated:', passwordResetToken.substring(0, 8) + '...');
-    console.log('SMTP configured:', smtpStatus.configured);
+    console.log('Email service configured:', emailStatus.configured);
     
     try {
       await this.emailService.sendPasswordResetEmail(user.email, passwordResetToken);
@@ -239,13 +239,11 @@ export class AuthService {
     // Include debug info in development mode
     if (isDevelopment) {
       response.debug = {
-        smtpConfigured: smtpStatus.configured,
+        emailServiceConfigured: emailStatus.configured,
         emailSent,
-        smtpStatus: {
-          host: smtpStatus.host || 'Not configured',
-          port: smtpStatus.port || 'Not configured',
-          user: smtpStatus.user || 'Not configured',
-          hasPassword: smtpStatus.hasPassword,
+        emailStatus: {
+          service: emailStatus.service || 'Not configured',
+          hasApiKey: emailStatus.hasApiKey,
         },
         ...(emailError && { emailError }),
       };

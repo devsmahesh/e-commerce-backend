@@ -50,23 +50,13 @@ REDIS_URL=redis://localhost:6379
 # ============================================
 # EMAIL CONFIGURATION (Optional - for email verification & password reset)
 # ============================================
-# Note: Product images are stored as URLs in the database
-# You can use any image hosting service or store images in your frontend
-# Gmail example:
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=your_email@gmail.com
-SMTP_PASS=your_app_password
-# For Gmail, you need to generate an "App Password": 
-# https://myaccount.google.com/apppasswords
-
-# SendGrid example:
-# SMTP_HOST=smtp.sendgrid.net
-# SMTP_PORT=587
-# SMTP_USER=apikey
-# SMTP_PASS=your_sendgrid_api_key
+# Resend API Key (get from https://resend.com)
+RESEND_API_KEY=re_your_api_key_here
+# Sign up at https://resend.com and get your API key from the dashboard
 
 EMAIL_FROM=noreply@ecommerce.com
+# Note: The EMAIL_FROM address must be verified in your Resend account
+# You can verify domains or use the default Resend domain for testing
 
 # ============================================
 # FRONTEND URL (for email links and CORS)
@@ -136,7 +126,7 @@ Before deploying to production:
 - [ ] Set `NODE_ENV=production`
 - [ ] Use secure MongoDB connection string
 - [ ] Configure proper CORS with `FRONTEND_URL`
-- [ ] Set up email service (SMTP) if needed
+- [ ] Set up email service (Resend) if needed
 - [ ] Set up Redis for caching (recommended)
 - [ ] Review rate limiting settings
 - [ ] Never commit `.env` file to git

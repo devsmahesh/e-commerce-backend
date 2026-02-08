@@ -81,25 +81,25 @@ export class AuthController {
   }
 
   @Public()
-  @Get('smtp-status')
-  @ApiOperation({ summary: 'Check SMTP configuration status (Development only)' })
-  @ApiResponse({ status: 200, description: 'SMTP status information' })
-  async getSmtpStatus() {
-    const status = this.emailService.getSmtpStatus();
+  @Get('email-status')
+  @ApiOperation({ summary: 'Check email service configuration status (Development only)' })
+  @ApiResponse({ status: 200, description: 'Email service status information' })
+  async getEmailStatus() {
+    const status = this.emailService.getEmailStatus();
     return {
       success: true,
-      message: 'SMTP Configuration Status',
+      message: 'Email Service Configuration Status',
       data: {
         ...status,
         message: status.configured 
-          ? '✅ SMTP is configured and ready to send emails'
-          : '❌ SMTP is NOT configured. Please add SMTP_HOST, SMTP_PORT, SMTP_USER, and SMTP_PASS to your .env file',
+          ? '✅ Email service is configured and ready to send emails'
+          : '❌ Email service is NOT configured. Please add RESEND_API_KEY to your .env file',
         instructions: status.configured ? null : {
-          gmail: {
+          resend: {
             steps: [
-              '1. Enable 2-Step Verification: https://myaccount.google.com/security',
-              '2. Generate App Password: https://myaccount.google.com/apppasswords',
-              '3. Add to .env: SMTP_HOST=smtp.gmail.com, SMTP_PORT=587, SMTP_USER=your_email@gmail.com, SMTP_PASS=your_app_password',
+              '1. Sign up for Resend: https://resend.com',
+              '2. Get your API key from the Resend dashboard',
+              '3. Add to .env: RESEND_API_KEY=re_your_api_key_here',
               '4. Restart your server'
             ]
           }
