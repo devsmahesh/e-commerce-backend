@@ -26,9 +26,9 @@ async function bootstrap() {
   await couponModel.deleteMany({});
 
   // Create Admin User
-  const adminPassword = await bcrypt.hash('Mahesh@12three', 10);
+  const adminPassword = await bcrypt.hash('Runiche@$12three', 10);
   const admin = await userModel.create({
-    email: 'mj726788@gmail.com',
+    email: 'runiche46@gmail.com',
     password: adminPassword,
     firstName: 'Admin',
     lastName: 'User',
