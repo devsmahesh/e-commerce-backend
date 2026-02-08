@@ -366,6 +366,20 @@ export class AuthService {
       `Password reset successful for user: ${user.email} (ID: ${user._id})`,
     );
 
+    // Send email notification
+    try {
+      await this.emailService.sendPasswordChangeEmail(
+        user.email,
+        user.firstName,
+      );
+      this.logger.log(`Password reset email sent to ${user.email}`);
+    } catch (error) {
+      // Log error but don't fail the password reset if email fails
+      this.logger.error(
+        `Failed to send password reset email to ${user.email}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
     return {
       success: true,
       message: 'Password has been reset successfully',
