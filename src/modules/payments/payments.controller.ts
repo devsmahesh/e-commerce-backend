@@ -31,6 +31,10 @@ import { OrderStatus } from '../orders/schemas/order.schema';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
+import { User, UserDocument } from '../auth/schemas/user.schema';
+import { EmailService } from '../email/email.service';
+import { ConfigService } from '@nestjs/config';
+import { Role } from '../../common/decorators/roles.decorator';
 
 /**
  * PaymentsController
@@ -53,7 +57,10 @@ export class PaymentsController {
     private readonly razorpayService: RazorpayService,
     private readonly paymentEventService: PaymentEventService,
     private readonly ordersService: OrdersService,
+    private readonly emailService: EmailService,
+    private readonly configService: ConfigService,
     @InjectModel(Order.name) private orderModel: Model<OrderDocument>,
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
   ) {}
 
   /**
@@ -489,6 +496,58 @@ export class PaymentsController {
     );
 
     this.logger.warn(`Payment failed for order ${order.orderNumber}: ${errorDescription}`);
+
+    // Send admin notification for high-value orders (configurable threshold, default: 5000 INR)
+    const highValueThreshold = Number(this.configService.get<string>('HIGH_VALUE_ORDER_THRESHOLD')) || 2500;
+    if (order.total >= highValueThreshold) {
+      try {
+        // Populate user data
+        const populatedOrder = await this.orderModel.findById(order._id).populate('userId', 'email firstName lastName').lean();
+        const user = (populatedOrder as any)?.userId;
+        const customerName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : 'Customer';
+        const customerEmail = user?.email || 'Unknown';
+        const orderDoc = populatedOrder as any;
+
+        const adminUsers = await this.userModel
+          .find({ role: Role.Admin, isActive: true })
+          .select('email firstName lastName')
+          .lean();
+
+        this.logger.log(`High-value order (₹${order.total}) payment failed. Found ${adminUsers.length} admin user(s) for notification.`);
+
+        if (adminUsers.length > 0) {
+          for (let i = 0; i < adminUsers.length; i++) {
+            const admin = adminUsers[i];
+            if (admin.email) {
+              try {
+                // Add delay between emails to respect rate limits
+                if (i > 0) {
+                  await new Promise(resolve => setTimeout(resolve, 700));
+                }
+                this.logger.log(`Attempting to send payment failed notification to admin: ${admin.email} for high-value order ${order.orderNumber}`);
+                await this.emailService.sendPaymentFailedNotificationToAdmin(admin.email, {
+                  orderNumber: order.orderNumber,
+                  customerName,
+                  customerEmail,
+                  orderTotal: order.total,
+                  paymentMethod: order.paymentMethod || undefined,
+                  failureReason: errorDescription,
+                  paymentAttempts: order.paymentAttempts || 1,
+                  orderDate: orderDoc.createdAt || new Date(),
+                });
+                this.logger.log(`✅ Payment failed notification sent to admin ${admin.email} for high-value order ${order.orderNumber}`);
+              } catch (emailError) {
+                this.logger.error(`❌ Failed to send payment failed notification to ${admin.email}: ${emailError instanceof Error ? emailError.message : String(emailError)}`);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        this.logger.error(`Failed to send payment failed notification to admin: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    } else {
+      this.logger.debug(`Order ${order.orderNumber} payment failed but order value (₹${order.total}) is below high-value threshold (₹${highValueThreshold}). Admin notification not sent.`);
+    }
   }
 
   /**

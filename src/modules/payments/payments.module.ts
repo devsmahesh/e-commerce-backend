@@ -6,6 +6,7 @@ import { PaymentsController } from './payments.controller';
 import { OrdersModule } from '../orders/orders.module';
 import { PaymentEvent, PaymentEventSchema } from './schemas/payment-event.schema';
 import { Order, OrderSchema } from '../orders/schemas/order.schema';
+import { User, UserSchema } from '../auth/schemas/user.schema';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { Order, OrderSchema } from '../orders/schemas/order.schema';
     MongooseModule.forFeature([
       { name: PaymentEvent.name, schema: PaymentEventSchema },
       { name: Order.name, schema: OrderSchema },
+      { name: User.name, schema: UserSchema },
     ]),
   ],
   controllers: [PaymentsController],

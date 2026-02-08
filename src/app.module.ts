@@ -53,6 +53,7 @@ import { RawBodyMiddleware } from './common/middleware/raw-body.middleware';
         RESEND_API_KEY: Joi.string().optional(),
         EMAIL_FROM: Joi.string().optional(),
         ADMIN_EMAIL: Joi.string().optional(),
+        HIGH_VALUE_ORDER_THRESHOLD: Joi.number().optional().default(5000),
         LOGO_URL: Joi.string().optional(),
         FRONTEND_URL: Joi.string().optional(),
         API_URL: Joi.string().optional(),

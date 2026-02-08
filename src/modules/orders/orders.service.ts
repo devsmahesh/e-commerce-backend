@@ -1489,6 +1489,58 @@ export class OrdersService {
       // The error message is already formatted by RazorpayService
       const errorMessage = refundError.message || refundError.response?.message || 'Refund failed';
 
+      // Store refund failure details
+      order.refundStatus = 'failed';
+      order.refundError = errorMessage;
+      await order.save();
+
+      // Send refund failure notification to admin
+      try {
+        await order.populate('userId', 'email firstName lastName');
+        const user = order.userId as any;
+        const customerName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : 'Customer';
+        const customerEmail = user?.email || 'Unknown';
+        const orderDoc = order as any;
+
+        const adminUsers = await this.userModel
+          .find({ role: Role.Admin, isActive: true })
+          .select('email firstName lastName')
+          .lean();
+
+        if (adminUsers.length > 0) {
+          for (let i = 0; i < adminUsers.length; i++) {
+            const admin = adminUsers[i];
+            if (admin.email) {
+              try {
+                if (i > 0) {
+                  await new Promise(resolve => setTimeout(resolve, 700));
+                }
+                await this.emailService.sendRefundNotificationToAdmin(admin.email, {
+                  orderNumber: order.orderNumber,
+                  customerName,
+                  customerEmail,
+                  refundId: 'N/A',
+                  refundAmount: refundAmountInRupees,
+                  refundStatus: 'failed',
+                  refundReason: reason || undefined,
+                  refundedBy: refundedBy || 'admin',
+                  orderTotal: order.total,
+                  isFullRefund: false,
+                  refundError: errorMessage,
+                  orderDate: orderDoc.createdAt || new Date(),
+                  refundedAt: new Date(),
+                });
+                this.logger.log(`✅ Refund failure notification sent to admin ${admin.email} for order ${order.orderNumber}`);
+              } catch (emailError) {
+                this.logger.error(`❌ Failed to send refund failure notification to ${admin.email}: ${emailError instanceof Error ? emailError.message : String(emailError)}`);
+              }
+            }
+          }
+        }
+      } catch (notifyError) {
+        this.logger.error(`Failed to send refund failure notification to admin: ${notifyError instanceof Error ? notifyError.message : String(notifyError)}`);
+      }
+
       throw new BadRequestException(errorMessage);
     }
 
@@ -1533,6 +1585,56 @@ export class OrdersService {
       this.logger.error(
         `Failed to send refund notification email: ${error instanceof Error ? error.message : String(error)}`,
       );
+    }
+
+    // Send refund notification to admin (for both success and failure)
+    try {
+      const user = order.userId as any;
+      const customerName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : 'Customer';
+      const customerEmail = user?.email || 'Unknown';
+      const orderDoc = order as any;
+
+      const adminUsers = await this.userModel
+        .find({ role: Role.Admin, isActive: true })
+        .select('email firstName lastName')
+        .lean();
+
+      this.logger.log(`Found ${adminUsers.length} admin user(s) for refund notification. Admin emails: ${adminUsers.map(a => a.email).join(', ') || 'none'}`);
+
+      if (adminUsers.length > 0) {
+        for (let i = 0; i < adminUsers.length; i++) {
+          const admin = adminUsers[i];
+          if (admin.email) {
+            try {
+              // Add delay between emails to respect rate limits (skip delay for first email)
+              if (i > 0) {
+                await new Promise(resolve => setTimeout(resolve, 700));
+              }
+              this.logger.log(`Attempting to send refund notification to admin: ${admin.email} for order ${order.orderNumber}`);
+              await this.emailService.sendRefundNotificationToAdmin(admin.email, {
+                orderNumber: order.orderNumber,
+                customerName,
+                customerEmail,
+                refundId: order.refundId || 'N/A',
+                refundAmount: refundAmountInRupees,
+                refundStatus: order.refundStatus || 'pending',
+                refundReason: reason || undefined,
+                refundedBy: refundedBy || 'admin',
+                orderTotal: order.total,
+                isFullRefund,
+                refundError: order.refundError || undefined,
+                orderDate: orderDoc.createdAt || new Date(),
+                refundedAt: order.refundedAt || new Date(),
+              });
+              this.logger.log(`✅ Refund notification sent to admin ${admin.email} for order ${order.orderNumber}`);
+            } catch (emailError) {
+              this.logger.error(`❌ Failed to send refund notification to ${admin.email}: ${emailError instanceof Error ? emailError.message : String(emailError)}`);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      this.logger.error(`Failed to send refund notification to admin: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     const transformedOrder = this.transformOrderResponse(order);

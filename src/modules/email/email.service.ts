@@ -884,6 +884,269 @@ export class EmailService {
     `;
   }
 
+  async sendRefundNotificationToAdmin(
+    adminEmail: string,
+    refundData: {
+      orderNumber: string;
+      customerName: string;
+      customerEmail: string;
+      refundId: string;
+      refundAmount: number;
+      refundStatus: 'processed' | 'pending' | 'failed';
+      refundReason?: string;
+      refundedBy?: string;
+      orderTotal: number;
+      isFullRefund: boolean;
+      refundError?: string;
+      orderDate: Date;
+      refundedAt: Date;
+    },
+  ): Promise<void> {
+    const emailFrom = this.configService.get<string>('EMAIL_FROM') || 'noreply@ecommerce.com';
+    const apiUrl = this.configService.get<string>('API_URL') || 'http://localhost:8000';
+    const adminOrderUrl = `${apiUrl}/api/v1/admin/orders`;
+    const logoUrl = this.getLogoUrl();
+
+    const statusColor = refundData.refundStatus === 'failed' ? '#dc3545' : 
+                       refundData.refundStatus === 'processed' ? '#28a745' : '#ffc107';
+    const statusText = refundData.refundStatus === 'failed' ? '⚠️ Refund Failed' :
+                      refundData.refundStatus === 'processed' ? '✅ Refund Processed' :
+                      '⏳ Refund Pending';
+
+    const mailOptions = {
+      from: emailFrom,
+      to: adminEmail,
+      subject: `${refundData.refundStatus === 'failed' ? '⚠️' : '💰'} Refund ${refundData.refundStatus === 'failed' ? 'Failed' : refundData.refundStatus === 'processed' ? 'Processed' : 'Initiated'} - ${refundData.orderNumber}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Refund Notification</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px;">
+            ${this.getEmailHeader(logoUrl)}
+            <h1 style="color: ${this.PRIMARY_COLOR}; margin-top: 0;">${statusText}</h1>
+            <p>A refund has been ${refundData.refundStatus === 'failed' ? '<strong style="color: #dc3545;">FAILED</strong>' : refundData.refundStatus === 'processed' ? '<strong style="color: #28a745;">PROCESSED</strong>' : '<strong style="color: #ffc107;">INITIATED</strong>'} for an order.</p>
+            <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid ${statusColor};">
+              <h2 style="margin-top: 0; color: #333;">Refund Details</h2>
+              <table style="width: 100%; margin: 15px 0;">
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold; width: 40%;">Order Number:</td>
+                  <td style="padding: 8px 0;">${refundData.orderNumber}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Refund ID:</td>
+                  <td style="padding: 8px 0;">${refundData.refundId}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Refund Amount:</td>
+                  <td style="padding: 8px 0; font-size: 18px; font-weight: bold; color: ${statusColor};">
+                    ₹${refundData.refundAmount.toFixed(2)} ${refundData.isFullRefund ? '(Full Refund)' : '(Partial Refund)'}
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Order Total:</td>
+                  <td style="padding: 8px 0;">₹${refundData.orderTotal.toFixed(2)}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Status:</td>
+                  <td style="padding: 8px 0; text-transform: capitalize; color: ${statusColor}; font-weight: bold;">
+                    ${refundData.refundStatus}
+                  </td>
+                </tr>
+                ${refundData.refundReason ? `
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Reason:</td>
+                  <td style="padding: 8px 0;">${refundData.refundReason}</td>
+                </tr>
+                ` : ''}
+                ${refundData.refundedBy ? `
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Refunded By:</td>
+                  <td style="padding: 8px 0;">${refundData.refundedBy}</td>
+                </tr>
+                ` : ''}
+                ${refundData.refundError ? `
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold; color: #dc3545;">Error:</td>
+                  <td style="padding: 8px 0; color: #dc3545;">${refundData.refundError}</td>
+                </tr>
+                ` : ''}
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Order Date:</td>
+                  <td style="padding: 8px 0;">${new Date(refundData.orderDate).toLocaleString()}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Refunded At:</td>
+                  <td style="padding: 8px 0;">${new Date(refundData.refundedAt).toLocaleString()}</td>
+                </tr>
+              </table>
+            </div>
+            <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0;">
+              <h2 style="margin-top: 0; color: #333;">Customer Information</h2>
+              <p style="margin: 5px 0;"><strong>Name:</strong> ${refundData.customerName}</p>
+              <p style="margin: 5px 0;"><strong>Email:</strong> <a href="mailto:${refundData.customerEmail}" style="color: ${this.PRIMARY_COLOR};">${refundData.customerEmail}</a></p>
+            </div>
+            ${refundData.refundStatus === 'failed' ? `
+            <div style="background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #ffc107;">
+              <h3 style="margin-top: 0; color: #856404;">⚠️ Action Required</h3>
+              <p style="margin: 5px 0; color: #856404;">
+                The refund failed. Please review the error and manually process the refund if needed.
+              </p>
+            </div>
+            ` : ''}
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${adminOrderUrl}" style="background-color: ${this.SECONDARY_COLOR}; color: ${this.SECONDARY_FOREGROUND}; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">View Orders Dashboard</a>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        ${statusText}
+        
+        A refund has been ${refundData.refundStatus} for an order.
+        
+        Refund Details:
+        Order Number: ${refundData.orderNumber}
+        Refund ID: ${refundData.refundId}
+        Refund Amount: ₹${refundData.refundAmount.toFixed(2)} ${refundData.isFullRefund ? '(Full Refund)' : '(Partial Refund)'}
+        Order Total: ₹${refundData.orderTotal.toFixed(2)}
+        Status: ${refundData.refundStatus}
+        ${refundData.refundReason ? `Reason: ${refundData.refundReason}\n` : ''}
+        ${refundData.refundedBy ? `Refunded By: ${refundData.refundedBy}\n` : ''}
+        ${refundData.refundError ? `Error: ${refundData.refundError}\n` : ''}
+        Order Date: ${new Date(refundData.orderDate).toLocaleString()}
+        Refunded At: ${new Date(refundData.refundedAt).toLocaleString()}
+        
+        Customer Information:
+        Name: ${refundData.customerName}
+        Email: ${refundData.customerEmail}
+        
+        ${refundData.refundStatus === 'failed' ? '\n⚠️ Action Required: The refund failed. Please review the error and manually process the refund if needed.\n' : ''}
+        
+        View orders dashboard: ${adminOrderUrl}
+      `,
+    };
+
+    await this.sendEmail(mailOptions);
+  }
+
+  async sendPaymentFailedNotificationToAdmin(
+    adminEmail: string,
+    paymentData: {
+      orderNumber: string;
+      customerName: string;
+      customerEmail: string;
+      orderTotal: number;
+      paymentMethod?: string;
+      failureReason: string;
+      paymentAttempts: number;
+      orderDate: Date;
+    },
+  ): Promise<void> {
+    const emailFrom = this.configService.get<string>('EMAIL_FROM') || 'noreply@ecommerce.com';
+    const apiUrl = this.configService.get<string>('API_URL') || 'http://localhost:8000';
+    const adminOrderUrl = `${apiUrl}/api/v1/admin/orders`;
+    const logoUrl = this.getLogoUrl();
+
+    const mailOptions = {
+      from: emailFrom,
+      to: adminEmail,
+      subject: `⚠️ Payment Failed - High Value Order ${paymentData.orderNumber}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Payment Failed Notification</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: #f8f9fa; padding: 20px; border-radius: 5px;">
+            ${this.getEmailHeader(logoUrl)}
+            <div style="background-color: #fff3cd; padding: 20px; border-radius: 5px; border-left: 4px solid #ffc107; margin-bottom: 20px;">
+              <h1 style="color: #856404; margin-top: 0;">⚠️ Payment Failed - High Value Order</h1>
+              <p style="font-size: 16px; font-weight: bold; color: #856404;">A high-value order payment has failed and requires your attention.</p>
+            </div>
+            <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ddd;">
+              <h2 style="margin-top: 0; color: ${this.PRIMARY_COLOR}; border-bottom: 2px solid ${this.PRIMARY_COLOR}; padding-bottom: 10px;">Order Information</h2>
+              <table style="width: 100%; margin: 15px 0;">
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold; width: 40%;">Order Number:</td>
+                  <td style="padding: 8px 0;">${paymentData.orderNumber}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Order Total:</td>
+                  <td style="padding: 8px 0; font-size: 18px; font-weight: bold; color: #dc3545;">
+                    ₹${paymentData.orderTotal.toFixed(2)}
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Payment Method:</td>
+                  <td style="padding: 8px 0;">${paymentData.paymentMethod || 'Not specified'}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Failure Reason:</td>
+                  <td style="padding: 8px 0; color: #dc3545;">${paymentData.failureReason}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Payment Attempts:</td>
+                  <td style="padding: 8px 0;">${paymentData.paymentAttempts}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px 0; font-weight: bold;">Order Date:</td>
+                  <td style="padding: 8px 0;">${new Date(paymentData.orderDate).toLocaleString()}</td>
+                </tr>
+              </table>
+            </div>
+            <div style="background-color: white; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ddd;">
+              <h2 style="margin-top: 0; color: ${this.PRIMARY_COLOR}; border-bottom: 2px solid ${this.PRIMARY_COLOR}; padding-bottom: 10px;">Customer Information</h2>
+              <p style="margin: 5px 0;"><strong>Name:</strong> ${paymentData.customerName}</p>
+              <p style="margin: 5px 0;"><strong>Email:</strong> <a href="mailto:${paymentData.customerEmail}" style="color: ${this.PRIMARY_COLOR};">${paymentData.customerEmail}</a></p>
+            </div>
+            <div style="background-color: #f8d7da; padding: 15px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #dc3545;">
+              <h3 style="margin-top: 0; color: #721c24;">⚠️ Action Required</h3>
+              <p style="margin: 5px 0; color: #721c24;">
+                This is a high-value order. Please contact the customer to resolve the payment issue or investigate potential fraud.
+              </p>
+            </div>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${adminOrderUrl}" style="background-color: ${this.SECONDARY_COLOR}; color: ${this.SECONDARY_FOREGROUND}; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block; font-weight: bold;">View Orders Dashboard</a>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        ⚠️ Payment Failed - High Value Order
+        
+        A high-value order payment has failed and requires your attention.
+        
+        Order Information:
+        Order Number: ${paymentData.orderNumber}
+        Order Total: ₹${paymentData.orderTotal.toFixed(2)}
+        Payment Method: ${paymentData.paymentMethod || 'Not specified'}
+        Failure Reason: ${paymentData.failureReason}
+        Payment Attempts: ${paymentData.paymentAttempts}
+        Order Date: ${new Date(paymentData.orderDate).toLocaleString()}
+        
+        Customer Information:
+        Name: ${paymentData.customerName}
+        Email: ${paymentData.customerEmail}
+        
+        ⚠️ Action Required: This is a high-value order. Please contact the customer to resolve the payment issue or investigate potential fraud.
+        
+        View orders dashboard: ${adminOrderUrl}
+      `,
+    };
+
+    await this.sendEmail(mailOptions);
+  }
+
   getEmailStatus(): {
     configured: boolean;
     service: string;
