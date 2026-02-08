@@ -7,6 +7,7 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Order, OrderDocument, OrderStatus } from './schemas/order.schema';
@@ -32,6 +33,7 @@ export class OrdersService {
     @InjectModel(Coupon.name) private couponModel: Model<CouponDocument>,
     @InjectModel(User.name) private userModel: Model<UserDocument>,
     private emailService: EmailService,
+    private configService: ConfigService,
     @Inject(forwardRef(() => RazorpayService))
     private razorpayService: RazorpayService,
   ) {}
@@ -237,26 +239,34 @@ export class OrdersService {
       const customerName = user ? `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email : 'Customer';
       const customerEmail = user?.email || 'Unknown';
 
-      for (const admin of adminUsers) {
-        if (admin.email) {
-          await this.emailService.sendNewOrderNotificationToAdmin(admin.email, {
-            orderNumber: order.orderNumber,
-            customerName,
-            customerEmail,
-            items: order.items.map((item: any) => ({
-              name: item.name,
-              quantity: item.quantity,
-              price: item.price,
-              total: item.total,
-            })),
-            subtotal: order.subtotal,
-            shipping: order.shippingCost || 0,
-            tax: order.tax,
-            discount: order.discount || 0,
-            total: order.total,
-            shippingAddress: order.shippingAddress,
-          });
-          this.logger.log(`New order notification sent to admin ${admin.email} for order ${order.orderNumber}`);
+      if (adminUsers.length === 0) {
+        this.logger.warn(`No admin users found in database. Order notification not sent for order ${order.orderNumber}. Please ensure admin users exist with role 'admin'.`);
+      } else {
+        for (const admin of adminUsers) {
+          if (admin.email) {
+            try {
+              await this.emailService.sendNewOrderNotificationToAdmin(admin.email, {
+                orderNumber: order.orderNumber,
+                customerName,
+                customerEmail,
+                items: order.items.map((item: any) => ({
+                  name: item.name,
+                  quantity: item.quantity,
+                  price: item.price,
+                  total: item.total,
+                })),
+                subtotal: order.subtotal,
+                shipping: order.shippingCost || 0,
+                tax: order.tax,
+                discount: order.discount || 0,
+                total: order.total,
+                shippingAddress: order.shippingAddress,
+              });
+              this.logger.log(`New order notification sent to admin ${admin.email} for order ${order.orderNumber}`);
+            } catch (emailError) {
+              this.logger.error(`Failed to send order notification to ${admin.email}: ${emailError instanceof Error ? emailError.message : String(emailError)}`);
+            }
+          }
         }
       }
     } catch (error) {
@@ -584,32 +594,40 @@ export class OrdersService {
         // Get all admin users
         const adminUsers = await this.userModel.find({ role: Role.Admin, isActive: true }).select('email firstName lastName').lean();
 
-        for (const admin of adminUsers) {
-          if (admin.email) {
-            await this.emailService.sendOrderCancellationNotificationToAdmin(admin.email, {
-              orderNumber: order.orderNumber,
-              customerName,
-              customerEmail,
-              previousStatus,
-              cancellationReason: order.cancellationReason || undefined,
-              paymentStatus: order.paymentStatus || 'pending',
-              paymentMethod: order.paymentMethod || undefined,
-              items: order.items.map((item: any) => ({
-                name: item.name,
-                quantity: item.quantity,
-                price: item.price,
-                total: item.total,
-              })),
-              subtotal: order.subtotal,
-              shipping: order.shippingCost || 0,
-              tax: order.tax,
-              discount: order.discount || 0,
-              total: order.total,
-              shippingAddress: order.shippingAddress,
-              orderDate: orderDoc.createdAt || new Date(),
-              cancelledAt: order.cancelledAt || new Date(),
-            });
-            this.logger.log(`Order cancellation notification sent to admin ${admin.email} for order ${order.orderNumber}`);
+        if (adminUsers.length === 0) {
+          this.logger.warn(`No admin users found in database. Order cancellation notification not sent for order ${order.orderNumber}. Please ensure admin users exist with role 'admin'.`);
+        } else {
+          for (const admin of adminUsers) {
+            if (admin.email) {
+              try {
+                await this.emailService.sendOrderCancellationNotificationToAdmin(admin.email, {
+                orderNumber: order.orderNumber,
+                customerName,
+                customerEmail,
+                previousStatus,
+                cancellationReason: order.cancellationReason || undefined,
+                paymentStatus: order.paymentStatus || 'pending',
+                paymentMethod: order.paymentMethod || undefined,
+                items: order.items.map((item: any) => ({
+                  name: item.name,
+                  quantity: item.quantity,
+                  price: item.price,
+                  total: item.total,
+                })),
+                subtotal: order.subtotal,
+                shipping: order.shippingCost || 0,
+                tax: order.tax,
+                discount: order.discount || 0,
+                total: order.total,
+                shippingAddress: order.shippingAddress,
+                orderDate: orderDoc.createdAt || new Date(),
+                cancelledAt: order.cancelledAt || new Date(),
+              });
+                this.logger.log(`Order cancellation notification sent to admin ${admin.email} for order ${order.orderNumber}`);
+              } catch (emailError) {
+                this.logger.error(`Failed to send cancellation notification to ${admin.email}: ${emailError instanceof Error ? emailError.message : String(emailError)}`);
+              }
+            }
           }
         }
       } catch (error) {
@@ -1258,34 +1276,40 @@ export class OrdersService {
         .select('email firstName lastName')
         .lean();
 
-      for (const admin of adminUsers) {
-        if (admin.email) {
-          await this.emailService.sendOrderCancellationNotificationToAdmin(admin.email, {
-            orderNumber: order.orderNumber,
-            customerName,
-            customerEmail,
-            previousStatus,
-            cancellationReason: order.cancellationReason || undefined,
-            paymentStatus: order.paymentStatus || 'pending',
-            paymentMethod: order.paymentMethod || undefined,
-            items: order.items.map((item: any) => ({
-              name: item.name,
-              quantity: item.quantity,
-              price: item.price,
-              total: item.total,
-            })),
-            subtotal: order.subtotal,
-            shipping: order.shippingCost || 0,
-            tax: order.tax,
-            discount: order.discount || 0,
-            total: order.total,
-            shippingAddress: order.shippingAddress,
-            orderDate: orderDoc.createdAt || new Date(),
-            cancelledAt: order.cancelledAt || new Date(),
-          });
-          this.logger.log(
-            `Order cancellation notification sent to admin ${admin.email} for order ${order.orderNumber}`,
-          );
+      if (adminUsers.length === 0) {
+        this.logger.warn(`No admin users found in database. Order cancellation notification not sent for order ${order.orderNumber}. Please ensure admin users exist with role 'admin'.`);
+      } else {
+        for (const admin of adminUsers) {
+          if (admin.email) {
+            try {
+              await this.emailService.sendOrderCancellationNotificationToAdmin(admin.email, {
+                orderNumber: order.orderNumber,
+                customerName,
+                customerEmail,
+                previousStatus,
+                cancellationReason: order.cancellationReason || undefined,
+                paymentStatus: order.paymentStatus || 'pending',
+                paymentMethod: order.paymentMethod || undefined,
+                items: order.items.map((item: any) => ({
+                  name: item.name,
+                  quantity: item.quantity,
+                  price: item.price,
+                  total: item.total,
+                })),
+                subtotal: order.subtotal,
+                shipping: order.shippingCost || 0,
+                tax: order.tax,
+                discount: order.discount || 0,
+                total: order.total,
+                shippingAddress: order.shippingAddress,
+                orderDate: orderDoc.createdAt || new Date(),
+                cancelledAt: order.cancelledAt || new Date(),
+              });
+              this.logger.log(`Order cancellation notification sent to admin ${admin.email} for order ${order.orderNumber}`);
+            } catch (emailError) {
+              this.logger.error(`Failed to send cancellation notification to ${admin.email}: ${emailError instanceof Error ? emailError.message : String(emailError)}`);
+            }
+          }
         }
       }
     } catch (error) {

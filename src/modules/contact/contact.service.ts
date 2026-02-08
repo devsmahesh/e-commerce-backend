@@ -11,11 +11,14 @@ import { CreateContactDto } from './dto/create-contact.dto';
 import { UpdateContactDto } from './dto/update-contact.dto';
 import { EmailService } from '../email/email.service';
 import { ConfigService } from '@nestjs/config';
+import { User, UserDocument } from '../auth/schemas/user.schema';
+import { Role } from '../../common/decorators/roles.decorator';
 
 @Injectable()
 export class ContactService {
   constructor(
     @InjectModel(Contact.name) private contactModel: Model<ContactDocument>,
+    @InjectModel(User.name) private userModel: Model<UserDocument>,
     private readonly emailService: EmailService,
     private readonly configService: ConfigService,
   ) {}
@@ -81,27 +84,44 @@ export class ContactService {
   }
 
   private async sendEmailNotifications(contact: ContactDocument) {
-    const adminEmail = this.configService.get<string>('ADMIN_EMAIL');
     const emailFrom = this.configService.get<string>('EMAIL_FROM') || 'noreply@ecommerce.com';
 
-    // Send notification to admin
-    if (adminEmail) {
-      try {
-        await this.emailService.sendContactFormNotificationToAdmin(
-          adminEmail,
-          {
-            name: contact.name,
-            email: contact.email,
-            phone: contact.phone,
-            subject: contact.subject,
-            message: contact.message,
-            contactId: contact._id.toString(),
-            createdAt: (contact as any).createdAt || new Date(),
-          },
-        );
-      } catch (error) {
-        console.error('Failed to send admin notification email:', error);
+    // Get all admin users from database
+    try {
+      const adminUsers = await this.userModel
+        .find({ role: Role.Admin, isActive: true })
+        .select('email')
+        .lean();
+
+      if (adminUsers.length === 0) {
+        console.warn(`No admin users found in database. Contact form notification not sent for contact ${contact._id}. Please ensure admin users exist with role 'admin'.`);
+        return;
       }
+
+      // Send notification to all admin users
+      for (const admin of adminUsers) {
+        if (admin.email) {
+          try {
+            await this.emailService.sendContactFormNotificationToAdmin(
+              admin.email,
+              {
+                name: contact.name,
+                email: contact.email,
+                phone: contact.phone,
+                subject: contact.subject,
+                message: contact.message,
+                contactId: contact._id.toString(),
+                createdAt: (contact as any).createdAt || new Date(),
+              },
+            );
+            console.log(`Contact form notification sent to admin ${admin.email} for contact ${contact._id}`);
+          } catch (error) {
+            console.error(`Failed to send admin notification email to ${admin.email}:`, error);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch admin users for contact form notification:', error);
     }
 
     // Send auto-reply to user
